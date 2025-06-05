@@ -1,0 +1,240 @@
+{
+  "version": "0.1.0",
+  "description": "Unified tool configuration for amo workflow engine",
+  "tools": {
+    "ffmpeg": {
+      "name": "FFmpeg",
+      "description": "Complete media processing toolkit",
+      "category": "media",
+      "website": "https://ffmpeg.org/",
+      "check": {
+        "command": "ffmpeg",
+        "args": ["-version"],
+        "pattern": "ffmpeg version ([^\\s]+)"
+      },
+      "install": {
+        "windows": {
+          "method": "download",
+          "url": "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip",
+          "target": "ffmpeg.exe"
+        },
+        "darwin": {
+          "method": "homebrew",
+          "package": "ffmpeg"
+        },
+        "linux": {
+          "method": "package",
+          "packages": {
+            "apt": "ffmpeg",
+            "yum": "ffmpeg",
+            "pacman": "ffmpeg"
+          }
+        }
+      }
+    },
+    "imagemagick": {
+      "name": "ImageMagick",
+      "description": "Image manipulation toolkit",
+      "category": "image",
+      "website": "https://imagemagick.org/",
+      "check": {
+        "command": "magick",
+        "args": ["-version"],
+        "pattern": "Version: ImageMagick ([^\\s]+)"
+      },
+      "install": {
+        "windows": {
+          "method": "download",
+          "url": "https://imagemagick.org/archive/binaries/ImageMagick-7.1.1-portable-Q16-x64.zip",
+          "target": "magick.exe"
+        },
+        "darwin": {
+          "method": "homebrew",
+          "package": "imagemagick"
+        },
+        "linux": {
+          "method": "package",
+          "packages": {
+            "apt": "imagemagick",
+            "yum": "ImageMagick",
+            "pacman": "imagemagick"
+          }
+        }
+      }
+    },
+    "calibre": {
+      "name": "Calibre",
+      "description": "E-book management tool",
+      "category": "document",
+      "website": "https://calibre-ebook.com/",
+      "check": {
+        "command": "ebook-convert",
+        "args": ["--version"],
+        "pattern": "ebook-convert \\(calibre ([^)]+)\\)"
+      },
+      "darwin_binary": "/Applications/calibre.app/Contents/MacOS/ebook-convert",
+      "install": {
+        "windows": {
+          "method": "installer",
+          "url": "https://calibre-ebook.com/dist/win64"
+        },
+        "darwin": {
+          "method": "homebrew",
+          "package": "calibre"
+        },
+        "linux": {
+          "method": "package",
+          "packages": {
+            "apt": "calibre",
+            "yum": "calibre",
+            "pacman": "calibre"
+          }
+        }
+      }
+    },
+    "ghostscript": {
+      "name": "Ghostscript",
+      "description": "PostScript and PDF interpreter",
+      "category": "document",
+      "website": "https://www.ghostscript.com/",
+      "check": {
+        "command": "gs",
+        "args": ["--version"],
+        "pattern": "([0-9]+\\.[0-9]+\\.[0-9]+)"
+      },
+      "install": {
+        "windows": {
+          "method": "installer",
+          "url": "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/latest/download/gs10020w64.exe"
+        },
+        "darwin": {
+          "method": "homebrew",
+          "package": "ghostscript"
+        },
+        "linux": {
+          "method": "package",
+          "packages": {
+            "apt": "ghostscript",
+            "yum": "ghostscript",
+            "pacman": "ghostscript"
+          }
+        }
+      }
+    },
+    "pandoc": {
+      "name": "Pandoc",
+      "description": "Universal markup converter",
+      "category": "document",
+      "website": "https://pandoc.org/",
+      "check": {
+        "command": "pandoc",
+        "args": ["--version"],
+        "pattern": "pandoc ([^\\s]+)"
+      },
+      "install": {
+        "windows": {
+          "method": "github",
+          "repo": "jgm/pandoc",
+          "pattern": "pandoc-{version}-windows-x86_64.zip"
+        },
+        "darwin": {
+          "method": "homebrew",
+          "package": "pandoc"
+        },
+        "linux": {
+          "method": "package",
+          "packages": {
+            "apt": "pandoc",
+            "yum": "pandoc",
+            "pacman": "pandoc"
+          }
+        }
+      }
+    },
+    "surya_ocr": {
+      "name": "Surya OCR",
+      "description": "Multilingual OCR toolkit",
+      "category": "document",
+      "website": "https://github.com/VikParuchuri/surya",
+      "check": {
+        "command": "surya_ocr",
+        "args": ["--help"],
+        "pattern": "Usage:"
+      },
+      "install": {
+        "windows": {
+          "method": "pip",
+          "package": "surya-ocr",
+          "python": "3.8+"
+        },
+        "darwin": {
+          "method": "pip",
+          "package": "surya-ocr",
+          "python": "3.8+"
+        },
+        "linux": {
+          "method": "pip",
+          "package": "surya-ocr",
+          "python": "3.8+"
+        }
+      }
+    },
+    "doc-to-text": {
+      "name": "Doc-to-Text",
+      "description": "Document text extraction tool",
+      "category": "document",
+      "website": "https://github.com/nodewee/doc-to-text",
+      "check": {
+        "command": "doc-to-text",
+        "args": ["--version"],
+        "pattern": "doc-to-text ([^\\s]+)"
+      },
+      "install": {
+        "windows": {
+          "method": "github",
+          "repo": "nodewee/doc-to-text",
+          "pattern": "doc-to-text_windows_amd64.exe"
+        },
+        "darwin": {
+          "method": "github",
+          "repo": "nodewee/doc-to-text",
+          "pattern": "doc-to-text_darwin_{arch}"
+        },
+        "linux": {
+          "method": "github",
+          "repo": "nodewee/doc-to-text",
+          "pattern": "doc-to-text_linux_{arch}"
+        }
+      }
+    }
+  },
+  "config": {
+    "install_dir": {
+      "windows": "%USERPROFILE%\\.amo\\tools",
+      "darwin": "$HOME/.amo/tools",
+      "linux": "$HOME/.amo/tools"
+    },
+    "package_managers": {
+      "darwin": {
+        "homebrew": {
+          "check": "brew",
+          "install": "brew install"
+        }
+      },
+      "linux": {
+        "apt": {
+          "check": "apt",
+          "install": "sudo apt update && sudo apt install -y"
+        },
+        "yum": {
+          "check": "yum",
+          "install": "sudo yum install -y"
+        },
+        "pacman": {
+          "check": "pacman",
+          "install": "sudo pacman -S --noconfirm"
+        }
+      }
+    }
+  }
+} 
