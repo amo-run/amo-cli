@@ -206,6 +206,34 @@
           "pattern": "doc-to-text_linux_{arch}"
         }
       }
+    },
+    "llm-caller": {
+      "name": "LLM Caller",
+      "description": "Command-line LLM interaction tool",
+      "category": "ai",
+      "website": "https://github.com/nodewee/llm-caller",
+      "check": {
+        "command": "llm-caller",
+        "args": ["--version"],
+        "pattern": "llm-caller ([^\\s]+)"
+      },
+      "install": {
+        "windows": {
+          "method": "github",
+          "repo": "nodewee/llm-caller",
+          "pattern": "llm-caller_windows_amd64.exe"
+        },
+        "darwin": {
+          "method": "github",
+          "repo": "nodewee/llm-caller",
+          "pattern": "llm-caller_darwin_{arch}"
+        },
+        "linux": {
+          "method": "github",
+          "repo": "nodewee/llm-caller",
+          "pattern": "llm-caller_linux_{arch}"
+        }
+      }
     }
   },
   "config": {

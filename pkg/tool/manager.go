@@ -543,7 +543,7 @@ func FormatToolStatus(status ToolStatus) string {
 		if version == "" {
 			version = "unknown"
 		}
-		return fmt.Sprintf("✅ %s (%s) - installed (v%s)", status.Command, status.Name, version)
+		return fmt.Sprintf("✅ %s (%s) - installed (%s)", status.Command, status.Name, version)
 	}
 
 	if status.Error != "" {
