@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"amo/pkg/env"
@@ -21,10 +23,15 @@ var (
 func NewToolCmd() *cobra.Command {
 	toolCmd := &cobra.Command{
 		Use:   "tool",
-		Short: "Manage external tools and applications",
-		Long: `Manage external tools and applications required by workflows.
-This includes checking installation status, automatic installation, 
-and updating of tools like ffmpeg, imagemagick, pandoc, etc.`,
+		Short: "Manage external tools",
+		Long: `Manage external tools for amo workflows.
+
+Subcommands:
+  list       - List all supported tools and their installation status  
+  install    - Install one or more tools
+  permission - Manage CLI command permissions (list/add/remove)
+  cache      - Manage tool path cache (info/clear)
+  path       - Manage tools directory in system PATH`,
 	}
 
 	// List subcommand
@@ -114,11 +121,39 @@ and updating of tools like ffmpeg, imagemagick, pandoc, etc.`,
 	cacheCmd.AddCommand(cacheInfoCmd)
 	cacheCmd.AddCommand(cacheClearCmd)
 
+	// Path subcommand
+	pathCmd := &cobra.Command{
+		Use:   "path",
+		Short: "Manage tools directory in system PATH",
+		Long: `Manage the tools directory in system PATH environment variable.
+
+This command helps ensure that installed tools can be accessed directly from the command line.`,
+	}
+
+	// Path info subcommand
+	pathInfoCmd := &cobra.Command{
+		Use:   "info",
+		Short: "Show PATH configuration information",
+		Long:  "Display current PATH configuration and tools directory status.",
+		RunE:  runToolPathInfoCommand,
+	}
+
+	// Path setup subcommand
+	pathSetupCmd := &cobra.Command{
+		Use:   "setup",
+		Short: "Setup tools directory in system PATH",
+		Long:  "Add the tools directory to system PATH environment variable.",
+		RunE:  runToolPathSetupCommand,
+	}
+
 	// Add subcommands
 	toolCmd.AddCommand(listCmd)
 	toolCmd.AddCommand(installCmd)
 	toolCmd.AddCommand(permissionCmd)
 	toolCmd.AddCommand(cacheCmd)
+	pathCmd.AddCommand(pathInfoCmd)
+	pathCmd.AddCommand(pathSetupCmd)
+	toolCmd.AddCommand(pathCmd)
 
 	return toolCmd
 }
@@ -558,4 +593,129 @@ func runToolCacheClearCommand(cmd *cobra.Command, args []string) error {
 	fmt.Println("💡 Tool paths will be re-detected on next check")
 
 	return nil
+}
+
+func runToolPathInfoCommand(cmd *cobra.Command, args []string) error {
+	fmt.Println("🔍 PATH Configuration Information")
+	fmt.Println("=================================")
+
+	manager, err := createToolManager()
+	if err != nil {
+		return fmt.Errorf("failed to create tool manager: %w", err)
+	}
+
+	toolsDir := manager.GetInstallDir()
+	fmt.Printf("Tools directory: %s\n", toolsDir)
+
+	// Check if directory exists
+	if _, err := os.Stat(toolsDir); os.IsNotExist(err) {
+		fmt.Println("Status: Tools directory does not exist yet")
+		fmt.Println("💡 Install some tools first using 'amo tool install <tool-name>'")
+		return nil
+	}
+
+	// Check if tools directory is in PATH
+	env, err := env.NewEnvironment()
+	if err != nil {
+		return fmt.Errorf("failed to create environment: %w", err)
+	}
+
+	pathEnv := env.GetCrossPlatformUtils().GetEnvironmentVariable("PATH")
+	pathSeparator := env.GetCrossPlatformUtils().GetPathListSeparator()
+
+	paths := strings.Split(pathEnv, pathSeparator)
+	absToolsDir, _ := filepath.Abs(toolsDir)
+
+	inPath := false
+	for _, path := range paths {
+		absPath, err := filepath.Abs(path)
+		if err == nil && absPath == absToolsDir {
+			inPath = true
+			break
+		}
+	}
+
+	if inPath {
+		fmt.Println("Status: ✅ Tools directory is in PATH")
+	} else {
+		fmt.Println("Status: ❌ Tools directory is NOT in PATH")
+		fmt.Println("💡 Run 'amo tool path setup' to add it to PATH")
+	}
+
+	// List installed tools
+	fmt.Println("")
+	fmt.Println("Installed tools in directory:")
+
+	files, err := ioutil.ReadDir(toolsDir)
+	if err != nil {
+		fmt.Printf("⚠️  Cannot read tools directory: %v\n", err)
+		return nil
+	}
+
+	executableCount := 0
+	for _, file := range files {
+		if !file.IsDir() {
+			icon := "📄"
+			if (file.Mode().Perm() & 0111) != 0 {
+				icon = "🔧"
+				executableCount++
+			}
+			fmt.Printf("  %s %s (%s)\n", icon, file.Name(), formatFileSize(file.Size()))
+		}
+	}
+
+	if executableCount == 0 {
+		fmt.Println("  (No executable tools found)")
+	} else {
+		fmt.Printf("\nFound %d executable tool(s)\n", executableCount)
+	}
+
+	return nil
+}
+
+func runToolPathSetupCommand(cmd *cobra.Command, args []string) error {
+	fmt.Println("🔧 Setting up tools directory in PATH")
+	fmt.Println("=====================================")
+
+	manager, err := createToolManager()
+	if err != nil {
+		return fmt.Errorf("failed to create tool manager: %w", err)
+	}
+
+	toolsDir := manager.GetInstallDir()
+	fmt.Printf("Tools directory: %s\n", toolsDir)
+
+	// Check if directory exists
+	if _, err := os.Stat(toolsDir); os.IsNotExist(err) {
+		fmt.Println("⚠️  Tools directory does not exist yet")
+		fmt.Println("💡 Install some tools first using 'amo tool install <tool-name>'")
+		return nil
+	}
+
+	// Use the manager's method to ensure tools in PATH
+	if err := manager.EnsureToolsInPath(); err != nil {
+		return fmt.Errorf("failed to setup PATH: %w", err)
+	}
+
+	return nil
+}
+
+// formatFileSize formats file size in human-readable format
+func formatFileSize(size int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+
+	switch {
+	case size >= GB:
+		return fmt.Sprintf("%.1f GB", float64(size)/GB)
+	case size >= MB:
+		return fmt.Sprintf("%.1f MB", float64(size)/MB)
+	case size >= KB:
+		return fmt.Sprintf("%.1f KB", float64(size)/KB)
+	default:
+		return fmt.Sprintf("%d bytes", size)
+	}
 }

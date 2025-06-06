@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"os/exec"
@@ -345,7 +346,7 @@ func (m *Manager) checkToolStatus(toolName string, tool Tool) ToolStatus {
 	return status
 }
 
-// InstallTool installs a specific tool (automatic installation by default)
+// InstallTool installs a specific tool
 func (m *Manager) InstallTool(toolName string, forceReinstall bool) error {
 	if m.config == nil {
 		return fmt.Errorf("tool configuration not loaded")
@@ -353,39 +354,151 @@ func (m *Manager) InstallTool(toolName string, forceReinstall bool) error {
 
 	tool, exists := m.config.Tools[toolName]
 	if !exists {
-		return fmt.Errorf("tool '%s' not found", toolName)
+		return fmt.Errorf("unknown tool: %s", toolName)
 	}
 
-	// Check if already installed
-	status := m.checkToolStatus(toolName, tool)
-	if status.Installed && !forceReinstall {
-		return fmt.Errorf("tool '%s' is already installed (version %s)", tool.Name, status.Version)
+	// Check if already installed and not forcing reinstall
+	if !forceReinstall {
+		status := m.checkToolStatus(toolName, tool)
+		if status.Installed {
+			fmt.Printf("✅ %s is already installed (version: %s)\n", tool.Name, status.Version)
+			// Even if already installed, try to ensure it's in PATH
+			if err := m.ensureToolsInPath(); err != nil {
+				fmt.Printf("⚠️  Warning: Failed to ensure tools directory in PATH: %v\n", err)
+			}
+			return nil
+		}
 	}
 
-	// Get installation info for current platform
-	osName := runtime.GOOS
+	fmt.Printf("📦 Installing %s...\n", tool.Name)
+
+	// Get platform-specific install info
+	osName := m.environment.GetOperatingSystem()
 	installInfo, exists := tool.Install[osName]
 	if !exists {
-		return fmt.Errorf("no installation method available for %s", osName)
+		return fmt.Errorf("installation not supported for platform: %s", osName)
 	}
 
-	// Perform installation based on method (automatic by default)
+	// Install based on method
+	var err error
 	switch installInfo.Method {
 	case "homebrew":
-		return m.installViaHomebrew(installInfo.Package)
+		err = m.installViaHomebrew(installInfo.Package)
 	case "package":
-		return m.installViaPackageManager(installInfo.Packages)
+		err = m.installViaPackageManager(installInfo.Packages)
 	case "pip":
-		return m.installViaPip(installInfo.Package)
+		err = m.installViaPip(installInfo.Package)
 	case "github":
-		return m.installViaGitHub(toolName, installInfo)
+		err = m.installViaGitHub(toolName, installInfo)
 	case "download":
-		return m.installViaDownload(toolName, installInfo)
+		err = m.installViaDownload(toolName, installInfo)
 	case "installer":
-		return m.installViaInstaller(installInfo)
+		err = m.installViaInstaller(installInfo)
 	default:
-		return fmt.Errorf("installation method '%s' not implemented yet", installInfo.Method)
+		m.printManualInstallInstructions(toolName, installInfo)
+		return nil
 	}
+
+	if err != nil {
+		return fmt.Errorf("failed to install %s: %w", toolName, err)
+	}
+
+	// Clear path cache for this tool to force re-detection
+	m.clearCachedToolPath(toolName)
+
+	// Verify installation
+	status := m.checkToolStatus(toolName, tool)
+	if status.Installed {
+		fmt.Printf("✅ Successfully installed %s (version: %s)\n", tool.Name, status.Version)
+
+		// Try to ensure tools directory is in PATH after successful installation
+		if err := m.ensureToolsInPath(); err != nil {
+			fmt.Printf("⚠️  Warning: Failed to configure PATH: %v\n", err)
+		}
+	} else {
+		return fmt.Errorf("installation verification failed for %s: %s", toolName, status.Error)
+	}
+
+	return nil
+}
+
+// getInstallDir returns the installation directory for tools
+func (m *Manager) getInstallDir() string {
+	config := m.config.Config
+	installDirConfig, ok := config["install_dir"].(map[string]interface{})
+	if !ok {
+		// Fallback to default
+		homeDir, err := m.environment.GetCrossPlatformUtils().GetHomeDir()
+		if err != nil {
+			return filepath.Join(".", ".amo", "tools")
+		}
+		return filepath.Join(homeDir, ".amo", "tools")
+	}
+
+	osName := m.environment.GetOperatingSystem()
+	installDir, ok := installDirConfig[osName].(string)
+	if !ok {
+		// Fallback to default
+		homeDir, err := m.environment.GetCrossPlatformUtils().GetHomeDir()
+		if err != nil {
+			return filepath.Join(".", ".amo", "tools")
+		}
+		return filepath.Join(homeDir, ".amo", "tools")
+	}
+
+	// Expand environment variables
+	crossPlatform := m.environment.GetCrossPlatformUtils()
+	installDir = os.ExpandEnv(installDir)
+
+	// Handle platform-specific path expansion
+	if strings.Contains(installDir, "$HOME") {
+		homeDir, err := crossPlatform.GetHomeDir()
+		if err == nil {
+			installDir = strings.ReplaceAll(installDir, "$HOME", homeDir)
+		}
+	}
+
+	return crossPlatform.NormalizePath(installDir)
+}
+
+// GetInstallDir returns the installation directory for tools (exported version)
+func (m *Manager) GetInstallDir() string {
+	return m.getInstallDir()
+}
+
+// ensureToolsInPath ensures the tools directory is in the system PATH
+func (m *Manager) ensureToolsInPath() error {
+	toolsDir := m.getInstallDir()
+
+	// Only attempt PATH configuration if the tools directory exists and contains files
+	if _, err := os.Stat(toolsDir); os.IsNotExist(err) {
+		return nil // Tools directory doesn't exist yet, skip PATH configuration
+	}
+
+	// Check if directory has any executable files
+	files, err := ioutil.ReadDir(toolsDir)
+	if err != nil {
+		return nil // Can't read directory, skip PATH configuration
+	}
+
+	hasExecutables := false
+	for _, file := range files {
+		if !file.IsDir() && (file.Mode().Perm()&0111) != 0 {
+			hasExecutables = true
+			break
+		}
+	}
+
+	if !hasExecutables {
+		return nil // No executable files found, skip PATH configuration
+	}
+
+	return m.environment.EnsureToolsDirInPath(toolsDir)
+}
+
+// EnsureToolsInPath ensures the tools directory is in the system PATH (exported version)
+func (m *Manager) EnsureToolsInPath() error {
+	return m.ensureToolsInPath()
 }
 
 // GetToolPathCacheInfo returns information about the tool path cache
@@ -710,26 +823,6 @@ func (m *Manager) installViaInstaller(installInfo InstallInfo) error {
 	}
 
 	return fmt.Errorf("manual installation required")
-}
-
-// getInstallDir returns the installation directory for tools
-func (m *Manager) getInstallDir() string {
-	if m.config != nil && m.config.Config != nil {
-		if installDirConfig, exists := m.config.Config["install_dir"]; exists {
-			if installDirs, ok := installDirConfig.(map[string]interface{}); ok {
-				if dir, exists := installDirs[runtime.GOOS]; exists {
-					if dirStr, ok := dir.(string); ok {
-						// Expand environment variables
-						return m.environment.GetCrossPlatformUtils().NormalizePath(os.ExpandEnv(dirStr))
-					}
-				}
-			}
-		}
-	}
-
-	// Default fallback
-	homeDir, _ := m.environment.GetCrossPlatformUtils().GetHomeDir()
-	return filepath.Join(homeDir, ".amo", "tools")
 }
 
 // getLatestGitHubRelease gets the latest release from a GitHub repository

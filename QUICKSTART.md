@@ -104,7 +104,34 @@ amo tool cache clear
 
 # Manage CLI command permissions
 amo tool permission list
+
+# PATH management (NEW!)
+amo tool path info              # Show current PATH configuration
+amo tool path setup             # Add tools directory to system PATH
 ```
+
+### PATH Configuration (NEW!)
+
+Amo automatically tries to add the tools directory (`~/.amo/tools`) to your system PATH when you install tools. This allows you to run installed tools directly from the command line without specifying the full path.
+
+```bash
+# Check if tools directory is in PATH
+amo tool path info
+
+# Manually setup PATH (if automatic setup failed)
+amo tool path setup
+
+# After PATH setup, you can run tools directly:
+ffmpeg -version                 # Instead of ~/.amo/tools/ffmpeg -version
+surya_ocr --help               # Instead of ~/.amo/tools/surya_ocr --help
+```
+
+**Platform-specific notes:**
+- **macOS**: Automatically adds to `.zshrc` or `.bash_profile`
+- **Linux**: Automatically adds to `.bashrc`, `.zshrc`, or `.profile`
+- **Windows**: Provides manual instructions for Environment Variables
+
+If automatic setup fails, the tool will provide detailed manual instructions for your platform.
 
 ### Workflow Management
 

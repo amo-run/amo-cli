@@ -3,6 +3,7 @@ package env
 import (
 	"crypto/rand"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -455,4 +456,283 @@ func (e *Environment) saveAllowedCLICommands(commands []string) error {
 
 	// Write file
 	return e.crossPlatform.CreateFileWithPermissions(filePath, []byte(content), false)
+}
+
+// EnsureToolsDirInPath ensures that the tools directory is in the system PATH
+func (e *Environment) EnsureToolsDirInPath(toolsDir string) error {
+	// Check if tools directory is already in PATH
+	if e.isToolsDirInPath(toolsDir) {
+		return nil
+	}
+
+	// Try to add to PATH automatically
+	if err := e.addToolsDirToPath(toolsDir); err != nil {
+		// If automatic addition fails, provide manual instructions
+		e.printManualPathInstructions(toolsDir, err)
+		return nil // Don't treat this as a fatal error
+	}
+
+	fmt.Printf("✅ Successfully added %s to system PATH\n", toolsDir)
+	fmt.Println("💡 Please restart your terminal or run 'source ~/.zshrc' (or appropriate shell config) to apply changes")
+
+	return nil
+}
+
+// isToolsDirInPath checks if the tools directory is already in the PATH
+func (e *Environment) isToolsDirInPath(toolsDir string) bool {
+	pathEnv := e.crossPlatform.GetEnvironmentVariable("PATH")
+	pathSeparator := e.crossPlatform.GetPathListSeparator()
+
+	paths := strings.Split(pathEnv, pathSeparator)
+	absToolsDir, err := filepath.Abs(toolsDir)
+	if err != nil {
+		return false
+	}
+
+	for _, path := range paths {
+		absPath, err := filepath.Abs(path)
+		if err == nil && absPath == absToolsDir {
+			return true
+		}
+	}
+
+	return false
+}
+
+// addToolsDirToPath automatically adds the tools directory to PATH
+func (e *Environment) addToolsDirToPath(toolsDir string) error {
+	switch runtime.GOOS {
+	case "darwin", "linux":
+		return e.addToUnixPath(toolsDir)
+	case "windows":
+		return e.addToWindowsPath(toolsDir)
+	default:
+		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+	}
+}
+
+// addToUnixPath adds the tools directory to PATH on Unix-like systems
+func (e *Environment) addToUnixPath(toolsDir string) error {
+	homeDir, err := e.crossPlatform.GetHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	// Determine shell and config file
+	shell := e.getCurrentShell()
+	configFile := e.getShellConfigFile(shell, homeDir)
+
+	if configFile == "" {
+		return fmt.Errorf("could not determine shell configuration file")
+	}
+
+	// Create the export line
+	exportLine := fmt.Sprintf("export PATH=\"$PATH:%s\"", toolsDir)
+	comment := "# Added by amo-cli for tool management"
+
+	// Check if already exists in config file
+	if e.isPathInConfigFile(configFile, toolsDir) {
+		return nil // Already exists
+	}
+
+	// Try to append to config file
+	return e.appendToConfigFile(configFile, comment, exportLine)
+}
+
+// addToWindowsPath adds the tools directory to PATH on Windows
+func (e *Environment) addToWindowsPath(toolsDir string) error {
+	// On Windows, we'll provide manual instructions since modifying registry
+	// requires elevated permissions and is more complex
+	return fmt.Errorf("automatic PATH modification on Windows requires manual setup")
+}
+
+// getCurrentShell determines the current shell
+func (e *Environment) getCurrentShell() string {
+	shell := e.crossPlatform.GetEnvironmentVariable("SHELL")
+	if shell == "" {
+		// Fallback detection
+		if runtime.GOOS == "darwin" {
+			return "zsh" // Default on modern macOS
+		}
+		return "bash" // Default fallback
+	}
+
+	// Extract shell name from path
+	return filepath.Base(shell)
+}
+
+// getShellConfigFile returns the appropriate config file for the shell
+func (e *Environment) getShellConfigFile(shell, homeDir string) string {
+	switch shell {
+	case "zsh":
+		// Try .zshrc first, then .zprofile
+		zshrc := filepath.Join(homeDir, ".zshrc")
+		if _, err := os.Stat(zshrc); err == nil {
+			return zshrc
+		}
+		return filepath.Join(homeDir, ".zprofile")
+	case "bash":
+		// Try .bashrc first, then .bash_profile, then .profile
+		bashrc := filepath.Join(homeDir, ".bashrc")
+		if _, err := os.Stat(bashrc); err == nil {
+			return bashrc
+		}
+		bashProfile := filepath.Join(homeDir, ".bash_profile")
+		if _, err := os.Stat(bashProfile); err == nil {
+			return bashProfile
+		}
+		return filepath.Join(homeDir, ".profile")
+	case "fish":
+		configDir := filepath.Join(homeDir, ".config", "fish")
+		return filepath.Join(configDir, "config.fish")
+	default:
+		// Fallback to .profile for unknown shells
+		return filepath.Join(homeDir, ".profile")
+	}
+}
+
+// isPathInConfigFile checks if the tools directory is already in the config file
+func (e *Environment) isPathInConfigFile(configFile, toolsDir string) bool {
+	content, err := ioutil.ReadFile(configFile)
+	if err != nil {
+		return false
+	}
+
+	contentStr := string(content)
+	return strings.Contains(contentStr, toolsDir) &&
+		(strings.Contains(contentStr, "export PATH") || strings.Contains(contentStr, "PATH="))
+}
+
+// appendToConfigFile safely appends lines to a shell config file
+func (e *Environment) appendToConfigFile(configFile, comment, exportLine string) error {
+	// Ensure the config file exists
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		// Create the file if it doesn't exist
+		if err := e.crossPlatform.CreateFileWithPermissions(configFile, []byte(""), false); err != nil {
+			return fmt.Errorf("failed to create config file %s: %w", configFile, err)
+		}
+	}
+
+	// Open file for appending
+	file, err := os.OpenFile(configFile, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open config file %s: %w", configFile, err)
+	}
+	defer file.Close()
+
+	// Add a newline before our addition if the file doesn't end with one
+	content, err := ioutil.ReadFile(configFile)
+	if err == nil && len(content) > 0 && content[len(content)-1] != '\n' {
+		if _, err := file.WriteString("\n"); err != nil {
+			return fmt.Errorf("failed to write newline: %w", err)
+		}
+	}
+
+	// Write our lines
+	lines := []string{
+		"",
+		comment,
+		exportLine,
+		"",
+	}
+
+	for _, line := range lines {
+		if _, err := file.WriteString(line + "\n"); err != nil {
+			return fmt.Errorf("failed to write to config file: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// printManualPathInstructions provides manual instructions when automatic setup fails
+func (e *Environment) printManualPathInstructions(toolsDir string, err error) {
+	fmt.Printf("⚠️  Could not automatically add tools directory to PATH: %v\n", err)
+	fmt.Println("")
+	fmt.Println("📋 Manual Setup Instructions:")
+	fmt.Println("=============================")
+
+	switch runtime.GOOS {
+	case "darwin":
+		e.printMacOSInstructions(toolsDir)
+	case "linux":
+		e.printLinuxInstructions(toolsDir)
+	case "windows":
+		e.printWindowsInstructions(toolsDir)
+	default:
+		e.printGenericUnixInstructions(toolsDir)
+	}
+}
+
+// printMacOSInstructions provides manual setup instructions for macOS
+func (e *Environment) printMacOSInstructions(toolsDir string) {
+	shell := e.getCurrentShell()
+
+	fmt.Println("For macOS:")
+	fmt.Printf("1. Open Terminal and edit your shell configuration file:\n")
+
+	switch shell {
+	case "zsh":
+		fmt.Printf("   nano ~/.zshrc\n")
+	case "bash":
+		fmt.Printf("   nano ~/.bash_profile\n")
+	default:
+		fmt.Printf("   nano ~/.zshrc    # for zsh (default on macOS)\n")
+		fmt.Printf("   nano ~/.bash_profile    # for bash\n")
+	}
+
+	fmt.Printf("\n2. Add this line at the end of the file:\n")
+	fmt.Printf("   export PATH=\"$PATH:%s\"\n", toolsDir)
+	fmt.Printf("\n3. Save the file (Ctrl+X, then Y, then Enter in nano)\n")
+	fmt.Printf("\n4. Reload your shell configuration:\n")
+
+	switch shell {
+	case "zsh":
+		fmt.Printf("   source ~/.zshrc\n")
+	case "bash":
+		fmt.Printf("   source ~/.bash_profile\n")
+	default:
+		fmt.Printf("   source ~/.zshrc    # for zsh\n")
+		fmt.Printf("   source ~/.bash_profile    # for bash\n")
+	}
+
+	fmt.Printf("\n5. Verify the setup:\n")
+	fmt.Printf("   echo $PATH | grep %s\n", toolsDir)
+}
+
+// printLinuxInstructions provides manual setup instructions for Linux
+func (e *Environment) printLinuxInstructions(toolsDir string) {
+	fmt.Println("For Linux:")
+	fmt.Printf("1. Edit your shell configuration file:\n")
+	fmt.Printf("   nano ~/.bashrc    # for bash\n")
+	fmt.Printf("   nano ~/.zshrc     # for zsh\n")
+	fmt.Printf("   nano ~/.profile   # for other shells\n")
+	fmt.Printf("\n2. Add this line at the end of the file:\n")
+	fmt.Printf("   export PATH=\"$PATH:%s\"\n", toolsDir)
+	fmt.Printf("\n3. Save and reload:\n")
+	fmt.Printf("   source ~/.bashrc    # or appropriate config file\n")
+	fmt.Printf("\n4. Verify:\n")
+	fmt.Printf("   echo $PATH | grep %s\n", toolsDir)
+}
+
+// printWindowsInstructions provides manual setup instructions for Windows
+func (e *Environment) printWindowsInstructions(toolsDir string) {
+	fmt.Println("For Windows:")
+	fmt.Printf("1. Open Settings → System → About → Advanced system settings\n")
+	fmt.Printf("2. Click 'Environment Variables...'\n")
+	fmt.Printf("3. In 'User variables', select 'Path' and click 'Edit...'\n")
+	fmt.Printf("4. Click 'New' and add: %s\n", toolsDir)
+	fmt.Printf("5. Click 'OK' to save all dialogs\n")
+	fmt.Printf("6. Restart your command prompt/PowerShell\n")
+	fmt.Printf("\nAlternatively, using PowerShell (as Administrator):\n")
+	fmt.Printf("   $env:PATH += \";%s\"\n", toolsDir)
+	fmt.Printf("   [Environment]::SetEnvironmentVariable(\"PATH\", $env:PATH, \"User\")\n")
+}
+
+// printGenericUnixInstructions provides generic Unix instructions
+func (e *Environment) printGenericUnixInstructions(toolsDir string) {
+	fmt.Printf("Add this line to your shell configuration file (~/.bashrc, ~/.zshrc, etc.):\n")
+	fmt.Printf("   export PATH=\"$PATH:%s\"\n", toolsDir)
+	fmt.Printf("\nThen reload your shell configuration:\n")
+	fmt.Printf("   source ~/.bashrc    # or your shell's config file\n")
 }
