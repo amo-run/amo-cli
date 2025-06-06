@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -115,12 +116,16 @@ func (e *Engine) cliCommand(name string, args []string, opts map[string]interfac
 		}
 	}
 
-	// Execute command and capture output
-	output, err := cmd.CombinedOutput()
+	// Execute command and capture output separately for stdout and stderr
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
 
 	result := map[string]interface{}{
-		"stdout": string(output),
-		"stderr": "",
+		"stdout": stdout.String(),
+		"stderr": stderr.String(),
 	}
 
 	if err != nil {
@@ -129,11 +134,6 @@ func (e *Engine) cliCommand(name string, args []string, opts map[string]interfac
 			result["error"] = fmt.Sprintf("command timed out after %d seconds", timeout)
 		} else {
 			result["error"] = err.Error()
-		}
-
-		// For non-zero exit codes, stderr might be in the combined output
-		if exitError, ok := err.(*exec.ExitError); ok {
-			result["stderr"] = string(exitError.Stderr)
 		}
 	}
 
