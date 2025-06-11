@@ -172,6 +172,26 @@ function main() {
         console.log("Total directory size:", dirSizeResult.size, "bytes");
     }
 
+    // Demonstrate MD5 hash calculation
+    console.log("");
+    console.log("🔐 MD5 Hash (using fs.md5):");
+    
+    var jsonPath = fs.join([demoDir, "config.json"]);
+    var md5Result = fs.md5(jsonPath);
+    if (md5Result.error) {
+        console.error("❌ Failed to calculate MD5 hash:", md5Result.error);
+    } else {
+        console.log("config.json MD5:", md5Result.hash);
+    }
+    
+    var txtPath = fs.join([demoDir, "notes.txt"]);
+    var md5Result2 = fs.md5(txtPath);
+    if (md5Result2.error) {
+        console.error("❌ Failed to calculate MD5 hash:", md5Result2.error);
+    } else {
+        console.log("notes.txt MD5:", md5Result2.hash);
+    }
+
     // Cleanup
     var cleanup = getVar("cleanup") === "true";
     if (cleanup) {

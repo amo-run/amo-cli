@@ -1,6 +1,8 @@
 package filesystem
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -499,4 +501,26 @@ func (fs *FileSystem) CreateExecutableFile(path string, content []byte) error {
 	}
 
 	return nil
+}
+
+// GetFileMD5 calculates the MD5 hash of a file
+func (fs *FileSystem) GetFileMD5(path string) (string, error) {
+	path = fs.crossPlatform.NormalizePath(path)
+
+	if !fs.IsFile(path) {
+		return "", fmt.Errorf("path is not a file: %s", path)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file for MD5 calculation: %w", err)
+	}
+	defer file.Close()
+
+	hash := md5.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("failed to calculate MD5 hash: %w", err)
+	}
+
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }

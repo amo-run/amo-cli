@@ -53,6 +53,9 @@ func (e *Engine) registerFileSystemAPI() {
 		"getcwd": e.getWorkingDir, // alias
 		"chdir":  e.changeDir,
 		"cd":     e.changeDir, // alias
+
+		// Hash functions
+		"md5": e.getFileMD5,
 	})
 }
 
@@ -251,5 +254,17 @@ func fileInfoToMap(info filesystem.FileInfo) map[string]interface{} {
 		"is_dir":   info.IsDir,
 		"mod_time": info.ModTime,
 		"mode":     info.Mode,
+	}
+}
+
+// Hash functions
+func (e *Engine) getFileMD5(path string) map[string]interface{} {
+	hash, err := e.filesystem.GetFileMD5(path)
+	if err != nil {
+		return e.createResult(false, nil, err)
+	}
+	return map[string]interface{}{
+		"success": true,
+		"hash":    hash,
 	}
 }
