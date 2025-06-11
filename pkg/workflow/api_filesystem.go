@@ -1,5 +1,7 @@
 package workflow
 
+import "amo/pkg/filesystem"
+
 // registerFileSystemAPI registers all file system related functions
 func (e *Engine) registerFileSystemAPI() {
 	// File/Directory checks
@@ -86,7 +88,7 @@ func (e *Engine) getFileInfo(path string) map[string]interface{} {
 	if err != nil {
 		return e.createResult(false, nil, err)
 	}
-	return e.createResult(true, info, nil)
+	return e.createResult(true, fileInfoToMap(*info), nil)
 }
 
 // Directory operations
@@ -95,9 +97,16 @@ func (e *Engine) listDir(dirPath string) map[string]interface{} {
 	if err != nil {
 		return e.createResult(false, nil, err)
 	}
+
+	// Convert []filesystem.FileInfo to []map[string]interface{} for goja
+	interfaceFiles := make([]interface{}, len(files))
+	for i, f := range files {
+		interfaceFiles[i] = fileInfoToMap(f)
+	}
+
 	return map[string]interface{}{
 		"success": true,
-		"files":   files,
+		"files":   interfaceFiles,
 	}
 }
 
@@ -232,4 +241,15 @@ func (e *Engine) getBaseName(path string) string {
 
 func (e *Engine) getDirName(path string) string {
 	return e.filesystem.GetDirName(path)
+}
+
+func fileInfoToMap(info filesystem.FileInfo) map[string]interface{} {
+	return map[string]interface{}{
+		"name":     info.Name,
+		"path":     info.Path,
+		"size":     info.Size,
+		"is_dir":   info.IsDir,
+		"mod_time": info.ModTime,
+		"mode":     info.Mode,
+	}
 }

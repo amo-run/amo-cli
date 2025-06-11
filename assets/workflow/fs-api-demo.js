@@ -55,7 +55,7 @@ function main() {
     console.log("📂 Directory contents (using fs.readdir):");
     
     var listResult = fs.readdir(demoDir);
-    if (listResult.error) {
+    if (!listResult.success) {
         console.error("❌ Failed to list directory:", listResult.error);
     } else {
         for (var i = 0; i < listResult.files.length; i++) {
@@ -89,10 +89,11 @@ function main() {
     // Get file info using fs.stat
     console.log("");
     console.log("📊 File info (using fs.stat):");
-    var fileInfo = fs.stat(notesPath);
-    if (fileInfo.error) {
-        console.error("❌ Failed to get file info:", fileInfo.error);
+    var fileInfoResult = fs.stat(notesPath);
+    if (!fileInfoResult.success) {
+        console.error("❌ Failed to get file info:", fileInfoResult.error);
     } else {
+        var fileInfo = fileInfoResult.data;
         console.log("  Name:", fileInfo.name);
         console.log("  Size:", fileInfo.size, "bytes");
         console.log("  Modified:", fileInfo.mod_time);
