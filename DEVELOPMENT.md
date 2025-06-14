@@ -22,9 +22,11 @@ amo-cli/
 │   ├── run.go             # Workflow execution command (amo run)
 │   ├── tool.go            # Tool management commands (Go-based)
 │   ├── version.go         # Version display with build-time injection
-│   └── workflow.go        # Workflow listing and download commands
+│   ├── workflow.go        # Workflow listing and download commands
+│   └── config.go          # Configuration management commands
 ├── pkg/
 │   ├── cli/               # CLI parameter parsing
+│   ├── config/            # Configuration management system
 │   ├── env/               # Environment and cross-platform utilities
 │   ├── filesystem/        # File system operations wrapper
 │   ├── network/           # HTTP/Network operations
@@ -118,7 +120,52 @@ func (m *Manager) CheckTool(toolName string) (*ToolStatus, error) {
 - **User Control**: Users can manually edit cache file to specify custom tool locations
 - **Management Commands**: `amo tool cache info` and `amo tool cache clear` for cache management
 
-### 4. Workflow Engine (`pkg/workflow/`)
+### 4. Configuration Management (`pkg/config/`)
+
+```go
+type Manager struct {
+    viper         *viper.Viper
+    environment   *env.Environment
+    configDir     string
+    configFile    string
+    isInitialized bool
+}
+
+func (m *Manager) GetWorkflowsDir() string {
+    if err := m.Initialize(); err != nil {
+        // Fallback to default
+        downloader, err := NewWorkflowDownloader()
+        if err != nil {
+            return ""
+        }
+        return downloader.GetWorkflowsDir()
+    }
+
+    configuredDir := m.GetString(KeyWorkflowDir)
+    if configuredDir == "" {
+        // Use default location
+        downloader, err := NewWorkflowDownloader()
+        if err != nil {
+            return ""
+        }
+        return downloader.GetWorkflowsDir()
+    }
+
+    // Normalize path
+    return m.environment.GetCrossPlatformUtils().NormalizePath(configuredDir)
+}
+```
+
+**Configuration System Features:**
+
+- **File-based**: Configuration stored in `~/.amo/config.yaml` using YAML format
+- **Default Values**: Provides fallback values when configuration is not set
+- **CLI Interface**: Through `amo config` command for getting, setting, listing, and removing settings
+- **Extensible**: Design allows adding new configuration keys with minimal code changes
+- **Type-aware**: Provides helpers for different value types (strings, booleans, etc.)
+- **Well-defined Keys**: Uses constant-based key definitions to avoid typos and errors
+
+### 5. Workflow Engine (`pkg/workflow/`)
 
 **JavaScript execution with native API bindings:**
 
@@ -165,7 +212,7 @@ func (e *Engine) registerNetworkAPI() {
 }
 ```
 
-### 5. Workflow Download Management
+### 6. Workflow Download Management
 
 ```go
 type WorkflowDownloader struct {
@@ -190,7 +237,7 @@ func (wd *WorkflowDownloader) DownloadWorkflow(urlStr string, filename string) e
 }
 ```
 
-### 6. Cross-Platform Environment (`pkg/env/`)
+### 7. Cross-Platform Environment (`pkg/env/`)
 
 **Platform-aware utilities and security:**
 
@@ -216,7 +263,7 @@ func (e *Environment) EnsureAllowedCLIFile() error {
 }
 ```
 
-### 7. Asset Management (`assets.go`)
+### 8. Asset Management (`assets.go`)
 
 **Limited scope - only for core functionality:**
 
@@ -353,16 +400,32 @@ amo run new-workflow.js --var input=/path/to/input
 1. **Create command file** in `cmd/`:
 
 ```go
-func NewMyCmd() *cobra.Command {
-    return &cobra.Command{
-        Use:   "my-command",
-        Short: "Description of my command",
-        RunE:  runMyCommand,
+// Example: config command implementation
+func NewConfigCmd() *cobra.Command {
+    configCmd := &cobra.Command{
+        Use:   "config [<key> [<value>]]",
+        Short: "Manage configuration settings",
+        Long: `Manage amo configuration settings.
+Configuration is stored in ~/.amo/config.yaml.`,
+        Args: cobra.MaximumNArgs(2),
+        RunE: runConfigCommand,
     }
+
+    // Add subcommands if needed
+    configCmd.AddCommand(newConfigLsCmd())
+    configCmd.AddCommand(newConfigRmCmd())
+
+    return configCmd
 }
 
-func runMyCommand(cmd *cobra.Command, args []string) error {
+func runConfigCommand(cmd *cobra.Command, args []string) error {
     // Command implementation
+    manager, err := config.NewManager()
+    if err != nil {
+        return fmt.Errorf("failed to initialize config manager: %w", err)
+    }
+    
+    // Logic for getting or setting configuration
     return nil
 }
 ```
@@ -373,7 +436,11 @@ func runMyCommand(cmd *cobra.Command, args []string) error {
 func NewRootCmd() *cobra.Command {
     rootCmd := &cobra.Command{...}
     
-    rootCmd.AddCommand(NewMyCmd())
+    rootCmd.AddCommand(NewRunCmd())
+    rootCmd.AddCommand(NewWorkflowCmd())
+    rootCmd.AddCommand(NewVersionCmd())
+    rootCmd.AddCommand(NewToolCmd())
+    rootCmd.AddCommand(NewConfigCmd())
     
     return rootCmd
 }
@@ -506,6 +573,12 @@ amo workflow get https://github.com/user/repo/blob/main/workflow.js
 # Test permission management  
 amo tool permission list
 amo tool permission add ffmpeg
+
+# Test configuration management
+amo config ls                    # List all settings
+amo config workflows            # Get workflows directory
+amo config workflows ./test     # Set workflows directory
+amo config rm workflows         # Reset to default
 ```
 
 ## 📋 Project-Specific Conventions
@@ -527,10 +600,16 @@ amo tool permission add ffmpeg
 
 ### Command Structure
 
-- **Subcommands**: Clear separation of functionality (run, tool, workflow, version)
+- **Subcommands**: Clear separation of functionality (run, tool, workflow, version, config)
 - **Consistent Flags**: Use `--var` for workflow variables, `--input`/`--output` shortcuts
 - **Help Integration**: All commands have comprehensive help text
 - **Error Handling**: Consistent error messaging and exit codes
+- **Command Formats**:
+  - `amo run <workflow>`: Execute workflows
+  - `amo tool <subcommand>`: Manage tools and permissions
+  - `amo workflow <subcommand>`: Manage workflows
+  - `amo config <key> [value]`: Access configuration
+  - `amo version`: Display version information
 
 ### Security Model
 
@@ -550,6 +629,7 @@ amo tool permission add ffmpeg
 - `workflow.WorkflowDownloader`: Remote workflow management
 - `filesystem.FileSystem`: Cross-platform file operations wrapper
 - `env.Environment`: Platform-aware environment and security utilities
+- `config.Manager`: Configuration management system
 
 ### External Dependencies
 

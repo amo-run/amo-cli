@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"amo/pkg/workflow"
 
@@ -15,7 +17,6 @@ func NewWorkflowCmd() *cobra.Command {
 		Use:   "workflow",
 		Short: "Manage workflow files",
 		Long:  "Manage workflow files: list available workflows or download new ones from remote sources.",
-		RunE:  listAllWorkflows,
 	}
 
 	// Add subcommands
@@ -69,20 +70,69 @@ Examples:
 
 // listAllWorkflows lists both user and embedded workflows
 func listAllWorkflows(cmd *cobra.Command, args []string) error {
-	// List user workflows
+	// Get the workflow downloader
 	downloader, err := workflow.NewWorkflowDownloader()
-	if err == nil {
-		userWorkflows, err := downloader.ListUserWorkflows()
-		if err == nil && len(userWorkflows) > 0 {
-			fmt.Println("User workflows (in ~/.amo/workflows/):")
-			for _, workflow := range userWorkflows {
-				fmt.Printf("  %s\n", workflow)
+	if err != nil {
+		return fmt.Errorf("failed to initialize workflow downloader: %w", err)
+	}
+
+	// Check for configured directory
+	configuredDir := downloader.GetConfiguredWorkflowsDir()
+	hasConfiguredDir := configuredDir != ""
+
+	// Check default directory
+	defaultWorkflowsDir := downloader.GetWorkflowsDir()
+
+	fmt.Println("📋 Available workflow files:")
+	fmt.Println("==========================")
+
+	// A function to list workflows from a specific directory
+	listWorkflowsFromDir := func(dir string, label string) error {
+		// Check if directory exists
+		if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
+			return nil // Directory doesn't exist, nothing to list
+		}
+
+		// List workflows in the directory
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %w", label, err)
+		}
+
+		// Filter for JS files
+		var workflows []string
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".js") {
+				workflows = append(workflows, entry.Name())
+			}
+		}
+
+		if len(workflows) > 0 {
+			fmt.Printf("📁 %s:\n", label)
+			for _, wf := range workflows {
+				fmt.Printf("  - %s\n", wf)
 			}
 			fmt.Println()
+			return nil
+		}
+		return nil
+	}
+
+	// 1. List from configured directory if available
+	if hasConfiguredDir {
+		if err := listWorkflowsFromDir(configuredDir, fmt.Sprintf("User workflows (configured: %s)", configuredDir)); err != nil {
+			fmt.Printf("⚠️ %s\n\n", err)
 		}
 	}
 
-	// List embedded workflows
+	// 2. List from default downloads directory
+	if !hasConfiguredDir || configuredDir != defaultWorkflowsDir {
+		if err := listWorkflowsFromDir(defaultWorkflowsDir, fmt.Sprintf("Downloaded workflows (%s)", defaultWorkflowsDir)); err != nil {
+			fmt.Printf("⚠️ %s\n\n", err)
+		}
+	}
+
+	// 3. List embedded workflows
 	if AssetManager == nil {
 		fmt.Println("No embedded workflows available")
 		return nil
@@ -93,19 +143,25 @@ func listAllWorkflows(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to list embedded workflows: %w", err)
 	}
 
-	if len(workflows) == 0 {
+	if len(workflows) > 0 {
+		fmt.Println("📦 Embedded workflows:")
+		for _, wf := range workflows {
+			fmt.Printf("  - %s\n", wf)
+		}
+		fmt.Println()
+	} else {
 		fmt.Println("No embedded workflows found")
 		return nil
 	}
 
-	fmt.Println("Embedded workflows:")
-	for _, workflow := range workflows {
-		fmt.Printf("  %s\n", workflow)
-	}
-
-	fmt.Printf("\nUsage: amo run <workflow-name>\n")
+	fmt.Println("📌 Usage: amo run <workflow-name>")
 	if len(workflows) > 0 {
 		fmt.Printf("Example: amo run %s\n", workflows[0])
+	}
+
+	// Show tip about configuration
+	if !hasConfiguredDir {
+		fmt.Println("\n💡 Tip: Set a custom workflows directory with: amo config set workflows /path/to/workflows")
 	}
 
 	return nil
@@ -138,7 +194,10 @@ func downloadWorkflow(url, filename string) error {
 		}
 	}
 
-	workflowPath := downloader.GetWorkflowsDir() + string(os.PathSeparator) + actualFilename
+	// Always use the default workflows directory for downloads
+	targetDir := downloader.GetWorkflowsDir()
+
+	workflowPath := filepath.Join(targetDir, actualFilename)
 	fmt.Printf("✅ Workflow downloaded successfully to: %s\n", workflowPath)
 	fmt.Printf("Run with: amo run %s\n", actualFilename)
 

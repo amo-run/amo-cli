@@ -8,10 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"amo/pkg/env"
+
+	"github.com/spf13/viper"
 )
 
 // AllowedDomains defines the whitelist of allowed domains for workflow downloads
@@ -46,15 +49,56 @@ func NewWorkflowDownloader() (*WorkflowDownloader, error) {
 	}, nil
 }
 
-// GetWorkflowsDir returns the user workflows directory path
+// GetWorkflowsDir returns the default workflows directory
 func (wd *WorkflowDownloader) GetWorkflowsDir() string {
 	return wd.env.GetCrossPlatformUtils().JoinPath(wd.env.GetUserConfigDir(), "workflows")
 }
 
-// EnsureWorkflowsDir creates the workflows directory if it doesn't exist
+// EnsureWorkflowsDir ensures the workflows directory exists
 func (wd *WorkflowDownloader) EnsureWorkflowsDir() error {
 	workflowsDir := wd.GetWorkflowsDir()
 	return wd.env.GetCrossPlatformUtils().CreateDirWithPermissions(workflowsDir)
+}
+
+// GetConfiguredWorkflowsDir attempts to get the configured workflows directory
+// without directly importing the config package (to avoid circular imports)
+// If no configured directory is found, returns an empty string
+func (wd *WorkflowDownloader) GetConfiguredWorkflowsDir() string {
+	// We can't directly import the config package due to circular references,
+	// so we'll directly use viper to read from the config file
+
+	// Try environment variable first (useful for testing)
+	configuredDir := os.Getenv("AMO_WORKFLOWS_DIR")
+	if configuredDir != "" {
+		return wd.env.GetCrossPlatformUtils().NormalizePath(configuredDir)
+	}
+
+	// Use viper to read directly from the config file
+	configDir := wd.env.GetUserConfigDir()
+	configFile := filepath.Join(configDir, "config.yaml")
+
+	v := viper.New()
+	v.SetConfigFile(configFile)
+	v.SetConfigType("yaml")
+
+	// If config file doesn't exist, return empty string
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		return ""
+	}
+
+	// Read the config file
+	if err := v.ReadInConfig(); err != nil {
+		// If there's an error reading, just return empty
+		return ""
+	}
+
+	// Get the workflows directory setting
+	configuredDir = v.GetString("workflows")
+	if configuredDir != "" {
+		return wd.env.GetCrossPlatformUtils().NormalizePath(configuredDir)
+	}
+
+	return ""
 }
 
 // IsValidURL checks if the URL is from an allowed domain
@@ -184,6 +228,10 @@ func (wd *WorkflowDownloader) DownloadWorkflow(urlStr string, filename string) e
 		}
 	}
 
+	// Always use the default workflows directory for downloads
+	// regardless of whether a custom workflows directory is configured
+	workflowsDir := wd.GetWorkflowsDir()
+
 	// Ensure workflows directory exists
 	if err := wd.EnsureWorkflowsDir(); err != nil {
 		return fmt.Errorf("failed to create workflows directory: %w", err)
@@ -213,7 +261,7 @@ func (wd *WorkflowDownloader) DownloadWorkflow(urlStr string, filename string) e
 	}
 
 	// Save to workflows directory
-	workflowPath := wd.env.GetCrossPlatformUtils().JoinPath(wd.GetWorkflowsDir(), filename)
+	workflowPath := wd.env.GetCrossPlatformUtils().JoinPath(workflowsDir, filename)
 
 	err = wd.env.GetCrossPlatformUtils().CreateFileWithPermissions(workflowPath, content, false)
 	if err != nil {
@@ -223,26 +271,62 @@ func (wd *WorkflowDownloader) DownloadWorkflow(urlStr string, filename string) e
 	return nil
 }
 
-// ListUserWorkflows returns a list of user-downloaded workflow files
+// ListUserWorkflows returns a list of user-downloaded workflow files from both
+// the default downloads directory and the configured workflows directory
 func (wd *WorkflowDownloader) ListUserWorkflows() ([]string, error) {
-	workflowsDir := wd.GetWorkflowsDir()
+	// Create a map to avoid duplicates when filenames are the same
+	workflowMap := make(map[string]bool)
+	var err1, err2 error
 
-	// Check if directory exists
-	if _, err := os.Stat(workflowsDir); os.IsNotExist(err) {
-		return []string{}, nil
-	}
-
-	entries, err := os.ReadDir(workflowsDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read workflows directory: %w", err)
-	}
-
-	var workflows []string
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".js") {
-			workflows = append(workflows, entry.Name())
+	// 1. First list workflows from the default directory
+	defaultWorkflowsDir := wd.GetWorkflowsDir()
+	if _, statErr := os.Stat(defaultWorkflowsDir); !os.IsNotExist(statErr) {
+		entries, err := os.ReadDir(defaultWorkflowsDir)
+		if err != nil {
+			err1 = fmt.Errorf("failed to read default workflows directory: %w", err)
+		} else {
+			for _, entry := range entries {
+				if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".js") {
+					workflowMap[entry.Name()] = true
+				}
+			}
 		}
 	}
+
+	// 2. Then list workflows from the configured directory (if different)
+	configuredDir := wd.GetConfiguredWorkflowsDir()
+	if configuredDir != "" && configuredDir != defaultWorkflowsDir {
+		if _, statErr := os.Stat(configuredDir); !os.IsNotExist(statErr) {
+			entries, err := os.ReadDir(configuredDir)
+			if err != nil {
+				err2 = fmt.Errorf("failed to read configured workflows directory: %w", err)
+			} else {
+				for _, entry := range entries {
+					if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".js") {
+						workflowMap[entry.Name()] = true
+					}
+				}
+			}
+		}
+	}
+
+	// If both directories failed to read, return the errors
+	if err1 != nil && err2 != nil {
+		return nil, fmt.Errorf("failed to list workflows: %v; %v", err1, err2)
+	} else if err1 != nil {
+		return nil, err1
+	} else if err2 != nil {
+		return nil, err2
+	}
+
+	// Convert the map to a slice
+	workflows := make([]string, 0, len(workflowMap))
+	for workflow := range workflowMap {
+		workflows = append(workflows, workflow)
+	}
+
+	// Sort for consistent output
+	sort.Strings(workflows)
 
 	return workflows, nil
 }

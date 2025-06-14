@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"runtime"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -65,15 +64,4 @@ func showVersionInfo() {
 	fmt.Printf("  OS/Arch:     %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	fmt.Printf("  Compiler:    %s\n", runtime.Compiler)
 	fmt.Printf("\n")
-
-	// Additional build info
-	if version != "dev" && !strings.Contains(version, "dev") && !strings.Contains(version, "+") {
-		fmt.Printf("🚀 Release Information:\n")
-		fmt.Printf("  This is a release build\n")
-		fmt.Printf("  Release Notes: https://github.com/amotrix/amo-cli/releases/tag/%s\n", version)
-	} else {
-		fmt.Printf("🔧 Development Information:\n")
-		fmt.Printf("  This is a development build\n")
-		fmt.Printf("  Not intended for production use\n")
-	}
 }

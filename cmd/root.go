@@ -38,6 +38,7 @@ Use 'amo tool' to manage tools.`,
 	rootCmd.AddCommand(NewWorkflowCmd())
 	rootCmd.AddCommand(NewVersionCmd())
 	rootCmd.AddCommand(NewToolCmd())
+	rootCmd.AddCommand(NewConfigCmd())
 
 	return rootCmd
 }

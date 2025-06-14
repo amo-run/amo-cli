@@ -60,6 +60,11 @@ amo tool cache info             # View tool path cache info
 # Version info
 amo --version    # Quick version
 amo version      # Detailed build info
+
+# Configuration management
+amo config ls                    # List all configuration settings
+amo config workflows /path/to/dir # Set custom workflows directory
+amo config rm workflows          # Reset to default value
 ```
 
 ## ⚙️ Configuration
@@ -121,6 +126,27 @@ VARIABLE=value amo run workflow.js
 
 # Show workflow help (if supported)
 amo run workflow.js --workflow-help
+```
+
+### Configuration Settings
+
+Amo stores user configuration in `~/.amo/config.yaml` which can be managed through the CLI.
+
+```bash
+# List all configuration settings
+amo config ls
+
+# Get a specific configuration value
+amo config workflows
+
+# Set a configuration value
+amo config workflows ~/custom/workflows/dir
+
+# Remove a configuration value (restore default)
+amo config rm workflows
+
+# Currently supported configuration keys:
+# - workflows: Directory path for custom workflows
 ```
 
 ## 📁 Embedded Workflows

@@ -162,6 +162,27 @@ KEY=value amo run workflow.js
 amo run workflow.js --workflow-help
 ```
 
+### Configuration Settings
+
+Amo allows you to customize various settings via a simple configuration system:
+
+```bash
+# List all current configuration settings
+amo config ls
+
+# Get a specific setting
+amo config workflows  # Get custom workflows directory
+
+# Change a configuration setting
+amo config workflows ~/my-custom-workflows
+
+# Reset to default value
+amo config rm workflows
+```
+
+The configuration is stored in `~/.amo/config.yaml` and currently supports:
+- **workflows**: Custom directory for workflow files (default: `~/.amo/workflows`)
+
 ## 🔧 Writing Workflows
 
 ### Basic Workflow Structure
