@@ -482,64 +482,6 @@ var pattern = getVar("pattern") || "*.txt";
 processDirectory(inputDir, pattern);
 ```
 
-### 4. JSON 配置文件处理
-
-```javascript
-//!amo
-
-function loadConfig(configPath) {
-    if (!fs.exists(configPath)) {
-        // 创建默认配置
-        var defaultConfig = {
-            name: "我的工作流",
-            version: "1.0.0",
-            settings: {
-                debug: false,
-                timeout: 30
-            }
-        };
-        
-        var writeResult = fs.write(configPath, JSON.stringify(defaultConfig, null, 2));
-        if (!writeResult.success) {
-            console.error("创建默认配置失败:", writeResult.error);
-            return null;
-        }
-        console.log("已创建默认配置:", configPath);
-        return defaultConfig;
-    }
-
-    var readResult = fs.read(configPath);
-    if (!readResult.success) {
-        console.error("读取配置失败:", readResult.error);
-        return null;
-    }
-
-    try {
-        return JSON.parse(readResult.content);
-    } catch (error) {
-        console.error("配置文件 JSON 格式无效:", error.message);
-        return null;
-    }
-}
-
-function main() {
-    var config = loadConfig("./workflow-config.json");
-    if (!config) {
-        return false;
-    }
-
-    console.log("已加载配置:", config.name, "v" + config.version);
-    
-    if (config.settings.debug) {
-        console.log("调试模式已启用");
-    }
-
-    return true;
-}
-
-main();
-```
-
 ## 故障排除
 
 ### 自动补全不工作
