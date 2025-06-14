@@ -128,10 +128,11 @@ declare const fs: {
   size(path: string): Amo.SizeResult;
   find(root: string, pattern: string): Amo.FindResult;
   search(root: string, pattern: string): Amo.FindResult; // alias
-  cwd(): Amo.PathResult;
-  getcwd(): Amo.PathResult; // alias
-  chdir(path: string): Amo.Result;
-  cd(path: string): Amo.Result; // alias
+  
+  // New path functions
+  getCurrentWorkingPath(): Amo.PathResult;
+  getTempFilePath(prefix?: string): Amo.PathResult;
+  generateUniqueFilename(path: string, maxAttempts?: number): Amo.PathResult;
   
   // Hash functions
   md5(path: string): Amo.HashResult;

@@ -49,10 +49,17 @@ func (e *Engine) registerFileSystemAPI() {
 		"size":   e.getFileSize,
 		"find":   e.findFiles,
 		"search": e.findFiles, // alias
-		"cwd":    e.getWorkingDir,
-		"getcwd": e.getWorkingDir, // alias
-		"chdir":  e.changeDir,
-		"cd":     e.changeDir, // alias
+
+		// Remove: cwd, getcwd, chdir, cd
+		// "cwd":    e.getWorkingDir,
+		// "getcwd": e.getWorkingDir, // alias
+		// "chdir":  e.changeDir,
+		// "cd":     e.changeDir, // alias
+
+		// New path functions
+		"getCurrentWorkingPath":  e.getCurrentWorkingPath,
+		"getTempFilePath":        e.getTempFilePath,
+		"generateUniqueFilename": e.generateUniqueFilename,
 
 		// Hash functions
 		"md5": e.getFileMD5,
@@ -178,8 +185,8 @@ func (e *Engine) findFiles(rootPath, pattern string) map[string]interface{} {
 	}
 }
 
-// Working directory operations
-func (e *Engine) getWorkingDir() map[string]interface{} {
+// Working directory operations - renamed for clarity
+func (e *Engine) getCurrentWorkingPath() map[string]interface{} {
 	dir, err := e.filesystem.GetWorkingDir()
 	if err != nil {
 		return e.createResult(false, nil, err)
@@ -188,6 +195,23 @@ func (e *Engine) getWorkingDir() map[string]interface{} {
 		"success": true,
 		"path":    dir,
 	}
+}
+
+// Temporary file path generation
+func (e *Engine) getTempFilePath(prefix string) map[string]interface{} {
+	tempPath, err := e.filesystem.GetTempFilePath(prefix)
+	if err != nil {
+		return e.createResult(false, nil, err)
+	}
+	return map[string]interface{}{
+		"success": true,
+		"path":    tempPath,
+	}
+}
+
+// Keep the original functions for internal use, but they are no longer exposed to the JavaScript API
+func (e *Engine) getWorkingDir() map[string]interface{} {
+	return e.getCurrentWorkingPath()
 }
 
 func (e *Engine) changeDir(path string) map[string]interface{} {
@@ -266,5 +290,27 @@ func (e *Engine) getFileMD5(path string) map[string]interface{} {
 	return map[string]interface{}{
 		"success": true,
 		"hash":    hash,
+	}
+}
+
+// generateUniqueFilename generates a unique filename by adding a counter suffix if needed
+func (e *Engine) generateUniqueFilename(path string, maxAttemptsInput interface{}) map[string]interface{} {
+	// Parse maxAttempts parameter, if provided
+	maxAttempts := 1000 // default value
+
+	if maxAttemptsInput != nil {
+		if maxFloat, ok := maxAttemptsInput.(float64); ok {
+			maxAttempts = int(maxFloat)
+		}
+	}
+
+	uniquePath, err := e.filesystem.GenerateUniqueFilename(path, maxAttempts)
+	if err != nil {
+		return e.createResult(false, nil, err)
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"path":    uniquePath,
 	}
 }

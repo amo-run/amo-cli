@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"crypto/md5"
+	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -523,4 +524,68 @@ func (fs *FileSystem) GetFileMD5(path string) (string, error) {
 	}
 
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// GetTempFilePath returns a path for a temporary file with optional prefix
+func (fs *FileSystem) GetTempFilePath(prefix string) (string, error) {
+	// Get system temp directory
+	tempDir := fs.crossPlatform.GetTempDir()
+
+	// Create a unique filename
+	if prefix == "" {
+		prefix = "amo_tmp_"
+	}
+
+	// Generate a random string for uniqueness
+	randomBytes := make([]byte, 8)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes for temp file: %w", err)
+	}
+
+	randomStr := hex.EncodeToString(randomBytes)
+	fileName := fmt.Sprintf("%s%s", prefix, randomStr)
+
+	// Return the full path
+	tempPath := filepath.Join(tempDir, fileName)
+	return fs.crossPlatform.NormalizePath(tempPath), nil
+}
+
+// GenerateUniqueFilename generates a unique filename by adding a counter suffix if the file exists.
+// If the original file does not exist, it returns the original path.
+// If it exists, it adds "_1", "_2", etc. before the extension until finding an available name.
+// maxAttempts limits the number of attempts to find a unique name (default: 1000).
+func (fs *FileSystem) GenerateUniqueFilename(path string, maxAttempts int) (string, error) {
+	path = fs.crossPlatform.NormalizePath(path)
+
+	// If file doesn't exist, return the original path
+	if !fs.Exists(path) {
+		return path, nil
+	}
+
+	// Set default max attempts if not provided or invalid
+	if maxAttempts <= 0 {
+		maxAttempts = 1000
+	}
+
+	// Split the path into directory, base name, and extension
+	dir := fs.GetDirName(path)
+	baseName := fs.GetBaseName(path)
+	ext := fs.GetExtension(path)
+
+	// Try to find a unique filename by adding a counter suffix
+	counter := 1
+	var newPath string
+
+	for counter <= maxAttempts {
+		newFileName := fmt.Sprintf("%s_%d%s", baseName, counter, ext)
+		newPath = fs.JoinPath(dir, newFileName)
+
+		if !fs.Exists(newPath) {
+			return newPath, nil
+		}
+
+		counter++
+	}
+
+	return "", fmt.Errorf("failed to generate unique filename after %d attempts", maxAttempts)
 }

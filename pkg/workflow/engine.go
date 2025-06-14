@@ -207,18 +207,8 @@ func (e *Engine) executeScript(script, scriptPath string) error {
 
 // registerAPIs registers all JavaScript APIs
 func (e *Engine) registerAPIs() {
-	// Core functions
-	e.vm.Set("cliCommand", e.cliCommand)
-	e.vm.Set("getVar", e.getVar)
-
-	// Console
-	e.vm.Set("console", map[string]interface{}{
-		"log":   e.consoleLog,
-		"error": e.consoleError,
-		"warn":  e.consoleWarn,
-	})
-
 	// Register modular APIs
+	e.registerCoreAPI()
 	e.registerFileSystemAPI()
 	e.registerNetworkAPI()
 }

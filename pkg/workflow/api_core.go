@@ -210,3 +210,16 @@ func getCurrentUser() string {
 	}
 	return "unknown"
 }
+
+func (e *Engine) registerCoreAPI() {
+	// Set core functions
+	e.vm.Set("getVar", e.getVar)
+	e.vm.Set("cliCommand", e.cliCommand)
+
+	// Set console API
+	e.vm.Set("console", map[string]interface{}{
+		"log":   e.consoleLog,
+		"error": e.consoleError,
+		"warn":  e.consoleWarn,
+	})
+}

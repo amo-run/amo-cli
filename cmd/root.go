@@ -23,8 +23,9 @@ var AssetManager workflow.AssetReader
 
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "amo",
-		Short: "A CLI tool for managing tools and running JavaScript-based workflows",
+		SilenceUsage: true,
+		Use:          "amo",
+		Short:        "A CLI tool for managing tools and running JavaScript-based workflows",
 		Long: `amo is a command-line tool that manages tools and executes JavaScript-based workflows.
 It supports variable management and system command execution through a JavaScript runtime.
 
