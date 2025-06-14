@@ -211,4 +211,5 @@ func (e *Engine) registerAPIs() {
 	e.registerCoreAPI()
 	e.registerFileSystemAPI()
 	e.registerNetworkAPI()
+	e.registerEncodingAPI()
 }

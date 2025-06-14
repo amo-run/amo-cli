@@ -1,5 +1,4 @@
 # Amo Workflow Development Environment Setup Guide
-> Version v20250114
 
 This guide will help you set up IDE auto-completion functionality to make Amo workflow development more efficient.
 
@@ -58,6 +57,7 @@ The Amo workflow engine provides the following core APIs:
 
 - **`fs`**: File system operations (read/write files, directory operations, path handling, etc.)
 - **`http`**: Network requests (GET, POST, file downloads, etc.)
+- **`encoding`**: Encoding/decoding operations (base64, etc.)
 - **`console`**: Console output (logging)
 - **`cliCommand`**: Command line execution (with security whitelist)
 - **`getVar`**: Get environment variables and runtime parameters
@@ -137,6 +137,9 @@ fs.| // <- All fs methods should be displayed when cursor is here
 
 // Typing "http." should show network-related methods
 http.| // <- Shows get, post, getJSON, downloadFile and other methods
+
+// Typing "encoding." should show encoding-related methods
+encoding.| // <- Shows base64Encode, base64Decode and other methods
 
 // Test path operations
 var testPath = "/home/user/file.txt";
@@ -261,6 +264,49 @@ if (downloadResponse.status_code === 200) {
     console.log("Download completed:", downloadResponse.body);
 } else {
     console.error("Download failed:", downloadResponse.error);
+}
+```
+
+### Encoding/Decoding Examples
+
+```javascript
+//!amo
+
+// Base64 encoding
+var originalText = "Hello, Amo Workflow!";
+var encoded = encoding.base64Encode(originalText);
+console.log("Base64 encoded:", encoded);  // SGVsbG8sIEFtbyBXb3JrZmxvdyE=
+
+// Base64 decoding with error handling
+var decodeResult = encoding.base64Decode(encoded);
+if (decodeResult.success) {
+    console.log("Decoded text:", decodeResult.text);  // Hello, Amo Workflow!
+} else {
+    console.error("Decode failed:", decodeResult.error);
+}
+
+// Working with binary data (e.g., image file)
+var imageResult = fs.read("./image.png", true);  // true for binary mode
+if (imageResult.success) {
+    // Convert binary image to base64 for embedding in HTML or JSON
+    var base64Image = encoding.base64Encode(imageResult.content);
+    console.log("Image as base64:", base64Image.substring(0, 50) + "...");
+    
+    // Save base64 data to a file
+    fs.write("./image.b64", base64Image);
+    
+    // Later, decode back to binary
+    var decoded = encoding.base64Decode(base64Image);
+    if (decoded.success) {
+        // Save decoded binary back to file
+        fs.write("./image_copy.png", decoded.text, true);  // true for binary mode
+    }
+}
+
+// Handle invalid base64 input
+var invalidResult = encoding.base64Decode("This is not valid base64!!!");
+if (!invalidResult.success) {
+    console.error("Invalid base64 detected:", invalidResult.error);
 }
 ```
 
@@ -623,10 +669,12 @@ TypeScript definition files are mainly used to provide auto-completion. If type 
    // ❌ Error: Cannot use browser/Node.js APIs
    fetch('https://api.example.com');
    require('path').join('a', 'b');
+   btoa('encode this');  // Browser API
    
    // ✅ Correct: Use Amo workflow APIs
    http.get('https://api.example.com');
    fs.join(['a', 'b']);
+   encoding.base64Encode('encode this');
    ```
 
 4. **Path Handling Issues**

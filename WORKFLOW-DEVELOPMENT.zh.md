@@ -1,5 +1,4 @@
 # Amo 工作流开发环境设置指南
-> 版本 v20250605
 
 本指南将帮助您设置 IDE 自动补全功能，让 amo 工作流开发更加高效。
 
@@ -57,6 +56,7 @@ Amo 工作流引擎提供以下核心 API：
 
 - **`fs`**：文件系统操作（读写文件、目录操作、路径处理等）
 - **`http`**：网络请求（GET、POST、文件下载等）
+- **`encoding`**：编码/解码操作（base64 等）
 - **`console`**：控制台输出（日志记录）
 - **`cliCommand`**：命令行执行（带安全白名单）
 - **`getVar`**：获取环境变量和运行时参数
@@ -136,6 +136,9 @@ fs.| // <- 光标在这里时应显示所有 fs 方法
 
 // 输入 "http." 应该显示网络相关方法
 http.| // <- 显示 get、post、getJSON、downloadFile 等方法
+
+// 输入 "encoding." 应该显示编码相关方法
+encoding.| // <- 显示 base64Encode、base64Decode 等方法
 
 // 测试路径操作
 var testPath = "/home/user/file.txt";
@@ -260,6 +263,49 @@ if (downloadResponse.status_code === 200) {
     console.log("下载完成:", downloadResponse.body);
 } else {
     console.error("下载失败:", downloadResponse.error);
+}
+```
+
+### 编码/解码示例
+
+```javascript
+//!amo
+
+// Base64 编码
+var originalText = "你好，Amo 工作流！";
+var encoded = encoding.base64Encode(originalText);
+console.log("Base64 编码结果:", encoded);  // 5L2g5aW977yMQW1vIOW3peS9nOa1gO+8gQ==
+
+// Base64 解码（带错误处理）
+var decodeResult = encoding.base64Decode(encoded);
+if (decodeResult.success) {
+    console.log("解码后文本:", decodeResult.text);  // 你好，Amo 工作流！
+} else {
+    console.error("解码失败:", decodeResult.error);
+}
+
+// 处理二进制数据（例如图片文件）
+var imageResult = fs.read("./image.png", true);  // true 表示二进制模式
+if (imageResult.success) {
+    // 将二进制图像转换为 base64，用于在 HTML 或 JSON 中嵌入
+    var base64Image = encoding.base64Encode(imageResult.content);
+    console.log("图片的 base64 表示:", base64Image.substring(0, 50) + "...");
+    
+    // 保存 base64 数据到文件
+    fs.write("./image.b64", base64Image);
+    
+    // 稍后，将其解码回二进制格式
+    var decoded = encoding.base64Decode(base64Image);
+    if (decoded.success) {
+        // 将解码后的二进制数据保存回文件
+        fs.write("./image_copy.png", decoded.text, true);  // true 表示二进制模式
+    }
+}
+
+// 处理无效的 base64 输入
+var invalidResult = encoding.base64Decode("这不是有效的 base64 数据!!!");
+if (!invalidResult.success) {
+    console.error("检测到无效的 base64:", invalidResult.error);
 }
 ```
 
@@ -551,10 +597,12 @@ TypeScript 定义文件主要用于提供自动补全，如果出现类型错误
    // ❌ 错误：不能使用浏览器/Node.js API
    fetch('https://api.example.com');
    require('path').join('a', 'b');
+   btoa('编码这个');  // 浏览器 API
    
    // ✅ 正确：使用 Amo 工作流 API
    http.get('https://api.example.com');
    fs.join(['a', 'b']);
+   encoding.base64Encode('编码这个');
    ```
 
 4. **路径处理问题**
