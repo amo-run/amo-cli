@@ -540,7 +540,7 @@ func (m *Manager) installViaHomebrew(packageName string) error {
 
 	// Check if brew exists
 	if _, err := exec.LookPath("brew"); err != nil {
-		return fmt.Errorf("Homebrew not found. Install from: https://brew.sh/")
+		return fmt.Errorf("homebrew not found, install from: https://brew.sh/")
 	}
 
 	// Install package - no timeout restriction for tool management
@@ -1048,4 +1048,25 @@ func (m *Manager) printManualInstallInstructions(toolName string, installInfo In
 		fmt.Printf("   5. Make it executable: chmod +x %s\n", filepath.Join(installDir, toolName))
 	}
 	fmt.Printf("   6. Add to PATH or run: amo tool cache clear (to re-detect)\n")
+}
+
+// CheckToolsWithCallback checks all tools status and calls the callback function
+// after each tool check for immediate feedback
+func (m *Manager) CheckToolsWithCallback(callback func(ToolStatus)) error {
+	if m.config == nil {
+		return fmt.Errorf("tool configuration not loaded")
+	}
+
+	for toolName, tool := range m.config.Tools {
+		status := m.checkToolStatus(toolName, tool)
+		callback(status)
+	}
+
+	// Save path cache after checking all tools
+	if err := m.savePathCache(); err != nil {
+		// Log error but don't fail the operation
+		fmt.Printf("Warning: failed to save tool path cache: %v\n", err)
+	}
+
+	return nil
 }

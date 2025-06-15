@@ -192,27 +192,21 @@ func runToolListCommand(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	tools, err := manager.ListTools()
-	if err != nil {
-		return fmt.Errorf("failed to list tools: %w", err)
-	}
-
 	fmt.Printf("📊 Configuration: %s\n", manager.GetConfigVersion())
 	fmt.Println()
+	fmt.Println("⏳ Checking tools (results will appear as they are processed)...")
+	fmt.Println()
 
-	// Group tools by category
-	categories := make(map[string][]tool.ToolStatus)
-	for _, t := range tools {
-		// Get category from config - this would need to be added to the tool status
-		category := "tools" // Default category
-		categories[category] = append(categories[category], t)
-	}
-
+	// Track counts for summary
 	installedCount := 0
-	for _, t := range tools {
+	totalTools := 0
+
+	// Use the callback approach to print status immediately after each check
+	err = manager.CheckToolsWithCallback(func(t tool.ToolStatus) {
 		if t.Installed {
 			installedCount++
 		}
+		totalTools++
 
 		status := tool.FormatToolStatus(t)
 		fmt.Println(status)
@@ -220,12 +214,16 @@ func runToolListCommand(cmd *cobra.Command, args []string) error {
 		if showDetails && t.Error != "" {
 			fmt.Printf("   🔍 Details: %s\n", t.Error)
 		}
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to check tools: %w", err)
 	}
 
 	fmt.Println()
-	fmt.Printf("📊 Summary: %d/%d tools installed\n", installedCount, len(tools))
+	fmt.Printf("📊 Summary: %d/%d tools installed\n", installedCount, totalTools)
 
-	if installedCount < len(tools) {
+	if installedCount < totalTools {
 		fmt.Println()
 		fmt.Println("💡 Usage:")
 		fmt.Println("   amo tool list                 - List all tools with status")
