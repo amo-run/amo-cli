@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"amo/pkg/workflow"
@@ -93,24 +94,48 @@ func listAllWorkflows(cmd *cobra.Command, args []string) error {
 			return nil // Directory doesn't exist, nothing to list
 		}
 
-		// List workflows in the directory
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return fmt.Errorf("failed to read %s: %w", label, err)
-		}
-
-		// Filter for JS files
+		// List workflows in the directory (including subdirectories)
 		var workflows []string
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".js") {
-				workflows = append(workflows, entry.Name())
+
+		// Walk through all files recursively
+		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
 			}
+
+			// Skip directories themselves
+			if info.IsDir() {
+				return nil
+			}
+
+			// Check if it's a JS file
+			if strings.HasSuffix(strings.ToLower(info.Name()), ".js") {
+				// Get relative path from the workflows directory
+				relPath, err := filepath.Rel(dir, path)
+				if err != nil {
+					return err
+				}
+				workflows = append(workflows, relPath)
+			}
+			return nil
+		})
+
+		if err != nil {
+			return fmt.Errorf("failed to walk directory %s: %w", dir, err)
 		}
 
 		if len(workflows) > 0 {
 			fmt.Printf("📁 %s:\n", label)
+			// Sort the workflows for consistent output
+			sort.Strings(workflows)
 			for _, wf := range workflows {
-				fmt.Printf("  - %s\n", wf)
+				// For files in subdirectories, use a different prefix
+				if strings.Contains(wf, string(filepath.Separator)) {
+					// Show subfolder structure with a different icon
+					fmt.Printf("  - 📂 %s\n", wf)
+				} else {
+					fmt.Printf("  - 📄 %s\n", wf)
+				}
 			}
 			fmt.Println()
 			return nil

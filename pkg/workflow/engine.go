@@ -89,9 +89,11 @@ func (e *Engine) loadScript(scriptPath string) (string, error) {
 		return string(content), nil
 	}
 
-	// If the path doesn't contain a separator, it might be just a filename
-	// Try to find it in various locations
-	if !strings.Contains(scriptPath, string(filepath.Separator)) && !strings.Contains(scriptPath, "/") {
+	// Check if this is a path with subdirectories
+	hasSubdirectory := strings.Contains(scriptPath, string(filepath.Separator)) || strings.Contains(scriptPath, "/")
+
+	// For simple filenames without separators, try all locations
+	if !hasSubdirectory {
 		// Second priority: Try user's configured workflow directory
 		if configContent, err := e.tryConfiguredWorkflowPath(scriptPath); err == nil {
 			return configContent, nil
@@ -107,6 +109,26 @@ func (e *Engine) loadScript(scriptPath string) (string, error) {
 			normalizedPath := filepath.ToSlash(scriptPath)
 			if e.shouldTryEmbeddedAsset(normalizedPath) && e.assetReader.Exists(scriptPath) {
 				return e.assetReader.ReadFileAsString(scriptPath)
+			}
+		}
+	} else {
+		// For paths with subdirectories, check in workflow directories
+
+		// Second priority: Try user's configured workflow directory with full subpath
+		if configContent, err := e.tryConfiguredWorkflowSubpath(scriptPath); err == nil {
+			return configContent, nil
+		}
+
+		// Third priority: Try default downloaded workflows directory with full subpath
+		if userWorkflowContent, err := e.tryUserWorkflowSubpath(scriptPath); err == nil {
+			return userWorkflowContent, nil
+		}
+
+		// Fourth priority: Try embedded assets with normalized path
+		if e.assetReader != nil {
+			normalizedPath := filepath.ToSlash(scriptPath)
+			if e.assetReader.Exists(normalizedPath) {
+				return e.assetReader.ReadFileAsString(normalizedPath)
 			}
 		}
 	}
@@ -135,6 +157,31 @@ func (e *Engine) tryConfiguredWorkflowPath(filename string) (string, error) {
 	}
 
 	return "", fmt.Errorf("script not found in configured workflow directory: %s", filename)
+}
+
+// tryConfiguredWorkflowSubpath attempts to load script from subdirectories in the user's configured workflow directory
+func (e *Engine) tryConfiguredWorkflowSubpath(relPath string) (string, error) {
+	// Import the config package dynamically to avoid circular import
+	configManager, err := createConfigManager()
+	if err != nil {
+		return "", err
+	}
+
+	// Get configured workflows directory
+	workflowsDir := configManager.GetWorkflowsDir()
+	if workflowsDir == "" {
+		return "", fmt.Errorf("no configured workflow directory")
+	}
+
+	// Normalize the path to use OS-specific separators
+	normalizedPath := filepath.FromSlash(relPath)
+	workflowPath := filepath.Join(workflowsDir, normalizedPath)
+
+	if content, err := ioutil.ReadFile(workflowPath); err == nil {
+		return string(content), nil
+	}
+
+	return "", fmt.Errorf("script not found in configured workflow directory: %s", relPath)
 }
 
 // workflowDirProvider is a helper struct that provides workflow directories
@@ -182,6 +229,24 @@ func (e *Engine) tryUserWorkflowPath(filename string) (string, error) {
 	}
 
 	return "", fmt.Errorf("user workflow not found: %s", filename)
+}
+
+// tryUserWorkflowSubpath attempts to load script from subdirectories in the user downloads workflows directory
+func (e *Engine) tryUserWorkflowSubpath(relPath string) (string, error) {
+	downloader, err := NewWorkflowDownloader()
+	if err != nil {
+		return "", err
+	}
+
+	// Normalize the path to use OS-specific separators
+	normalizedPath := filepath.FromSlash(relPath)
+	userWorkflowPath := downloader.env.GetCrossPlatformUtils().JoinPath(downloader.GetWorkflowsDir(), normalizedPath)
+
+	if content, err := ioutil.ReadFile(userWorkflowPath); err == nil {
+		return string(content), nil
+	}
+
+	return "", fmt.Errorf("user workflow not found: %s", relPath)
 }
 
 // shouldTryEmbeddedAsset determines if we should try loading from embedded assets

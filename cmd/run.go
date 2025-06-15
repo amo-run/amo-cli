@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+
+	// "strings"
 	"time"
 
 	"amo/pkg/cli"
@@ -54,15 +56,65 @@ Examples:
 }
 
 func runWorkflowCommand(cmd *cobra.Command, args []string) error {
-	workflowFile := args[0]
+	if len(args) == 0 {
+		return fmt.Errorf("workflow filename is required")
+	}
 
-	if runDebug {
+	// Get script path
+	scriptPath := args[0]
+
+	// Help mode - just run the workflow with --help flag
+	if workflowHelp, _ := cmd.Flags().GetBool("workflow-help"); workflowHelp {
+		vars := map[string]string{
+			"help": "true",
+		}
+		return executeWorkflow(scriptPath, vars, 0, false)
+	}
+
+	// Parse variables
+	varsFlag, _ := cmd.Flags().GetStringArray("var")
+	vars := cli.ParseVars(varsFlag)
+
+	// Get timeout parameter
+	timeout, _ := cmd.Flags().GetInt("timeout")
+
+	// Get debug parameter
+	debug, _ := cmd.Flags().GetBool("debug")
+
+	// Process special shortcuts
+	input, _ := cmd.Flags().GetString("input")
+	if input != "" {
+		vars["input"] = input
+	}
+
+	output, _ := cmd.Flags().GetString("output")
+	if output != "" {
+		vars["output"] = output
+	}
+
+	// // Add environment variables to vars map
+	// for _, envVar := range os.Environ() {
+	// 	parts := strings.SplitN(envVar, "=", 2)
+	// 	if len(parts) == 2 && !strings.HasPrefix(parts[0], "_") {
+	// 		// Only if not explicitly set by user
+	// 		if _, exists := vars[parts[0]]; !exists {
+	// 			vars[parts[0]] = parts[1]
+	// 		}
+	// 	}
+	// }
+
+	// Execute workflow with variables and timeout
+	return executeWorkflow(scriptPath, vars, timeout, debug)
+}
+
+func executeWorkflow(scriptPath string, vars map[string]string, timeout int, debug bool) error {
+	if debug {
 		fmt.Fprintf(os.Stderr, "🚀 Amo Workflow Engine\n")
 		fmt.Fprintf(os.Stderr, "======================\n")
-		fmt.Fprintf(os.Stderr, "Executing workflow: %s\n", workflowFile)
+		fmt.Fprintf(os.Stderr, "Executing workflow: %s\n", scriptPath)
 		fmt.Fprintf(os.Stderr, "Debug mode: enabled\n")
-		if runTimeoutSecs > 0 {
-			fmt.Fprintf(os.Stderr, "Timeout: %d seconds\n", runTimeoutSecs)
+		if timeout > 0 {
+			fmt.Fprintf(os.Stderr, "Timeout: %d seconds\n", timeout)
 		} else {
 			fmt.Fprintf(os.Stderr, "Timeout: unlimited\n")
 		}
@@ -71,9 +123,9 @@ func runWorkflowCommand(cmd *cobra.Command, args []string) error {
 
 	// Create context with optional timeout
 	var ctx context.Context
-	if runTimeoutSecs > 0 {
+	if timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(runTimeoutSecs)*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		defer cancel()
 	} else {
 		ctx = context.Background()
@@ -86,25 +138,11 @@ func runWorkflowCommand(cmd *cobra.Command, args []string) error {
 		engine.SetAssetReader(AssetManager)
 	}
 
-	// Parse variables
-	vars := cli.ParseVars(runVarSpecs)
-
-	// Add convenience variables (if not already set)
-	if runHelp {
-		vars["help"] = "true"
-	}
-	if runInputPath != "" && vars["input"] == "" {
-		vars["input"] = runInputPath
-	}
-	if runOutputPath != "" && vars["output"] == "" {
-		vars["output"] = runOutputPath
-	}
-
 	// Set variables in engine
 	if len(vars) > 0 {
 		engine.SetVars(vars)
 
-		if runDebug {
+		if debug {
 			fmt.Fprintf(os.Stderr, "📋 Runtime Variables:\n")
 			for key, value := range vars {
 				fmt.Fprintf(os.Stderr, "  %s = %s\n", key, value)
@@ -114,19 +152,19 @@ func runWorkflowCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	// Execute workflow
-	if runDebug {
+	if debug {
 		fmt.Fprintf(os.Stderr, "▶️  Starting workflow execution...\n")
 		fmt.Fprintf(os.Stderr, "\n")
 	}
 
-	if err := engine.RunWorkflow(workflowFile); err != nil {
-		if runDebug {
+	if err := engine.RunWorkflow(scriptPath); err != nil {
+		if debug {
 			fmt.Fprintf(os.Stderr, "\n❌ Workflow execution failed: %v\n", err)
 		}
-		return fmt.Errorf("failed to execute workflow %s: %w", workflowFile, err)
+		return fmt.Errorf("failed to execute workflow %s: %w", scriptPath, err)
 	}
 
-	if runDebug {
+	if debug {
 		fmt.Fprintf(os.Stderr, "\n✅ Workflow completed successfully\n")
 	}
 
