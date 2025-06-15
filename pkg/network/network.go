@@ -289,11 +289,44 @@ func (nc *NetworkClient) isURLAllowed(urlStr string) bool {
 		return true
 	}
 
-	// Check host
+	// Check host and path using domain and path matching pattern
 	host := parsedURL.Hostname()
-	for _, allowedHost := range nc.allowedHosts {
-		if host == allowedHost || strings.HasSuffix(host, "."+allowedHost) {
-			return true
+	urlPath := parsedURL.Path
+
+	for _, allowedEntry := range nc.allowedHosts {
+		// Check if the allowed entry contains a path
+		hostPart := allowedEntry
+		pathPart := ""
+
+		if strings.Contains(allowedEntry, "/") {
+			parts := strings.SplitN(allowedEntry, "/", 2)
+			hostPart = parts[0]
+			pathPart = "/" + parts[1]
+		}
+
+		// First check if hostname matches
+		hostnameMatches := false
+		if host == hostPart {
+			hostnameMatches = true
+		} else if strings.HasSuffix(host, "."+hostPart) {
+			// Domain suffix match (e.g., "github.com" matches "api.github.com" or "user.github.com")
+			hostnameMatches = true
+		}
+
+		// If hostname matches, check path if necessary
+		if hostnameMatches {
+			if pathPart == "" {
+				// No path restriction in this entry, allow access
+				return true
+			} else {
+				// Path restriction exists, check if URL path starts with the allowed path
+				// Make sure we match exact paths or subdirectories, not partial path segments
+				if strings.HasPrefix(urlPath, pathPart) &&
+					(len(urlPath) == len(pathPart) || urlPath[len(pathPart)] == '/' || pathPart[len(pathPart)-1] == '/') {
+					return true
+				}
+				// Path doesn't match, continue checking other entries
+			}
 		}
 	}
 
@@ -308,16 +341,24 @@ func (nc *NetworkClient) loadAllowedHosts() error {
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		defaultHosts := []string{
 			"github.com",
-			"api.github.com",
-			"releases.ubuntu.com",
-			"download.imagemagick.org",
+			"raw.githubusercontent.com",
+			"gitlab.com",
+			"bitbucket.org",
+			"sourceforge.net",
+			"ffmpeg.org",
+			"imagemagick.org",
 			"calibre-ebook.com",
-			"www.ghostscript.com",
-			"github.com/jgm/pandoc",
+			"ghostscript.com",
 		}
 
-		content := "# Allowed hosts for network access - one per line\n"
-		content += "# Examples:\n"
+		content := "# Allowed hosts for network access - one domain per line\n"
+		content += "# Domain and path matching rules:\n"
+		content += "# - \"github.com\" matches github.com itself and any subdomain like api.github.com with any path\n"
+		content += "# - \"github.com/nodewee\" matches only github.com/nodewee and any path under it (e.g., github.com/nodewee/project)\n"
+		content += "# - \"api.github.com\" matches only api.github.com and its subdomains with any path\n"
+		content += "# - \"api.github.com/v3\" matches only api.github.com/v3 and paths under it\n"
+		content += "# - To restrict access to specific paths only, include the path in the entry\n"
+		content += "# Example entries:\n"
 		for _, host := range defaultHosts {
 			content += host + "\n"
 		}

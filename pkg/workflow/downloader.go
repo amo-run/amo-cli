@@ -18,6 +18,9 @@ import (
 )
 
 // AllowedDomains defines the whitelist of allowed domains for workflow downloads
+// Uses domain suffix matching pattern:
+// - "github.com" matches github.com itself and any subdomain like api.github.com
+// - "raw.githubusercontent.com" matches itself and subdomains like cdn.raw.githubusercontent.com
 var AllowedDomains = []string{
 	"github.com",
 	"raw.githubusercontent.com",
@@ -114,14 +117,47 @@ func (wd *WorkflowDownloader) IsValidURL(urlStr string) error {
 
 	hostname := strings.ToLower(parsedURL.Hostname())
 
-	// Check against allowed domains
-	for _, allowedDomain := range AllowedDomains {
-		if hostname == allowedDomain || strings.HasSuffix(hostname, "."+allowedDomain) {
-			return nil
+	// Check against allowed domains using domain and path matching pattern
+	urlPath := parsedURL.Path
+
+	for _, allowedEntry := range AllowedDomains {
+		// Check if the allowed entry contains a path
+		hostPart := allowedEntry
+		pathPart := ""
+
+		if strings.Contains(allowedEntry, "/") {
+			parts := strings.SplitN(allowedEntry, "/", 2)
+			hostPart = parts[0]
+			pathPart = "/" + parts[1]
+		}
+
+		// First check if hostname matches
+		hostnameMatches := false
+		if hostname == hostPart {
+			hostnameMatches = true
+		} else if strings.HasSuffix(hostname, "."+hostPart) {
+			// Domain suffix match (e.g., "github.com" matches "api.github.com")
+			hostnameMatches = true
+		}
+
+		// If hostname matches, check path if necessary
+		if hostnameMatches {
+			if pathPart == "" {
+				// No path restriction in this entry, allow access
+				return nil
+			} else {
+				// Path restriction exists, check if URL path starts with the allowed path
+				// Make sure we match exact paths or subdirectories, not partial path segments
+				if strings.HasPrefix(urlPath, pathPart) &&
+					(len(urlPath) == len(pathPart) || urlPath[len(pathPart)] == '/' || pathPart[len(pathPart)-1] == '/') {
+					return nil
+				}
+				// Path doesn't match, continue checking other entries
+			}
 		}
 	}
 
-	return fmt.Errorf("domain %s is not in the allowed list: %v", hostname, AllowedDomains)
+	return fmt.Errorf("URL with domain %s and path %s is not in the allowed list", hostname, urlPath)
 }
 
 // ConvertToRawURL converts GitHub/GitLab URLs to raw content URLs
