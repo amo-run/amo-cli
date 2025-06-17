@@ -72,7 +72,7 @@ func runWorkflowCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parse variables
-	varsFlag, _ := cmd.Flags().GetStringArray("var")
+	varsFlag, _ := cmd.Flags().GetStringSlice("var")
 	vars := cli.ParseVars(varsFlag)
 
 	// Get timeout parameter
