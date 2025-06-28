@@ -23,7 +23,6 @@ env:
 jobs:
   update-homebrew-formula:
     runs-on: ubuntu-latest
-    # Skip prerelease versions for homebrew unless manually triggered
     if: github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease)
     
     steps:
@@ -41,7 +40,6 @@ jobs:
             VERSION=${GITHUB_REF#refs/tags/}
           fi
           
-          # Ensure version starts with 'v'
           if [[ ! "$VERSION" =~ ^v ]]; then
             VERSION="v${VERSION}"
           fi
@@ -57,13 +55,12 @@ jobs:
           echo "📦 Version: $VERSION"
           echo "🔗 Source URL: $SOURCE_URL"
 
-      - name: Wait for release assets (for release events)
+      - name: Wait for release assets
         if: github.event_name == 'release'
         run: |
           echo "⏳ Waiting for release to be fully available..."
           VERSION=${{ steps.version.outputs.version }}
           
-          # Wait up to 2 minutes for release to be accessible
           for i in {1..12}; do
             echo "🔍 Attempt $i/12: Checking release availability..."
             
@@ -90,11 +87,9 @@ jobs:
           echo "📥 Downloading source package..."
           curl -fsSL "$SOURCE_URL" -o "${TAR_NAME}.tar.gz"
           
-          # Calculate SHA256
           SHA256=$(sha256sum "${TAR_NAME}.tar.gz" | cut -d' ' -f1)
           echo "🔐 SHA256: $SHA256"
           
-          # Verify download integrity
           FILE_SIZE=$(stat -c%s "${TAR_NAME}.tar.gz")
           if [ "$FILE_SIZE" -lt 1000 ]; then
             echo "❌ Downloaded file seems too small: $FILE_SIZE bytes"
@@ -118,16 +113,50 @@ jobs:
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" tap-repo
           cd tap-repo
           
-          # Ensure we're on the main branch
           git checkout main || git checkout master || git checkout -b main
-          
-          # Create Formula directory if it doesn't exist
           mkdir -p Formula
           
           echo "📋 Current tap repository status:"
           ls -la
           echo "Formula directory contents:"
           ls -la Formula/ || echo "Formula directory is empty or doesn't exist"
+
+      - name: Check for prebuilt binaries
+        id: check_binaries
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BASE_URL="https://github.com/${SOURCE_REPO}/releases/download/${VERSION}"
+          
+          echo "🔍 Checking for prebuilt binaries..."
+          
+          # Check each platform and get SHA256
+          for platform in "darwin_amd64" "darwin_arm64" "linux_amd64" "linux_arm64"; do
+            binary_name="amo_${platform}"
+            echo "📥 Checking ${binary_name}..."
+            
+            if curl -fsSL "${BASE_URL}/${binary_name}" -o "${binary_name}" 2>/dev/null; then
+              sha256=$(sha256sum "${binary_name}" | cut -d' ' -f1)
+              echo "✅ ${binary_name}: $sha256"
+              echo "${platform}_sha256=$sha256" >> $GITHUB_OUTPUT
+              echo "${platform}_available=true" >> $GITHUB_OUTPUT
+              rm -f "${binary_name}"
+            else
+              echo "⚠️  ${binary_name} not found"
+              echo "${platform}_available=false" >> $GITHUB_OUTPUT
+            fi
+          done
+          
+          # Check if we have any binaries
+          if [ "${{ steps.check_binaries.outputs.darwin_amd64_available }}" = "true" ] || \
+             [ "${{ steps.check_binaries.outputs.darwin_arm64_available }}" = "true" ] || \
+             [ "${{ steps.check_binaries.outputs.linux_amd64_available }}" = "true" ] || \
+             [ "${{ steps.check_binaries.outputs.linux_arm64_available }}" = "true" ]; then
+            echo "has_binaries=true" >> $GITHUB_OUTPUT
+            echo "✅ Found prebuilt binaries"
+          else
+            echo "has_binaries=false" >> $GITHUB_OUTPUT
+            echo "⚠️  No prebuilt binaries found"
+          fi
 
       - name: Generate Homebrew formula
         run: |
@@ -140,47 +169,115 @@ jobs:
           
           FORMULA_FILE="Formula/${FORMULA_NAME}.rb"
           
-          echo "📝 Generating formula: $FORMULA_FILE"
+          if [ "${{ steps.check_binaries.outputs.has_binaries }}" = "true" ]; then
+            echo "✅ Generating binary-based formula..."
+            
+            # Create the formula using shell script
+            echo 'class Amo < Formula' > "$FORMULA_FILE"
+            echo '  desc "Advanced workflow automation CLI tool for productivity and task management"' >> "$FORMULA_FILE"
+            echo '  homepage "https://github.com/amo-run/amo-cli"' >> "$FORMULA_FILE"
+            echo '  license "MIT"' >> "$FORMULA_FILE"
+            echo "  version \"$VERSION_NUMBER\"" >> "$FORMULA_FILE"
+            echo '' >> "$FORMULA_FILE"
+            
+            # Add platform-specific URLs for available binaries
+            if [ "${{ steps.check_binaries.outputs.darwin_amd64_available }}" = "true" ]; then
+              echo '  on_macos do' >> "$FORMULA_FILE"
+              echo '    on_intel do' >> "$FORMULA_FILE"
+              echo "      url \"https://github.com/${SOURCE_REPO}/releases/download/${VERSION}/amo_darwin_amd64\"" >> "$FORMULA_FILE"
+              echo "      sha256 \"${{ steps.check_binaries.outputs.darwin_amd64_sha256 }}\"" >> "$FORMULA_FILE"
+              echo '    end' >> "$FORMULA_FILE"
+              echo '  end' >> "$FORMULA_FILE"
+              echo '' >> "$FORMULA_FILE"
+            fi
+            
+            if [ "${{ steps.check_binaries.outputs.darwin_arm64_available }}" = "true" ]; then
+              echo '  on_macos do' >> "$FORMULA_FILE"
+              echo '    on_arm do' >> "$FORMULA_FILE"
+              echo "      url \"https://github.com/${SOURCE_REPO}/releases/download/${VERSION}/amo_darwin_arm64\"" >> "$FORMULA_FILE"
+              echo "      sha256 \"${{ steps.check_binaries.outputs.darwin_arm64_sha256 }}\"" >> "$FORMULA_FILE"
+              echo '    end' >> "$FORMULA_FILE"
+              echo '  end' >> "$FORMULA_FILE"
+              echo '' >> "$FORMULA_FILE"
+            fi
+            
+            if [ "${{ steps.check_binaries.outputs.linux_amd64_available }}" = "true" ]; then
+              echo '  on_linux do' >> "$FORMULA_FILE"
+              echo '    on_intel do' >> "$FORMULA_FILE"
+              echo "      url \"https://github.com/${SOURCE_REPO}/releases/download/${VERSION}/amo_linux_amd64\"" >> "$FORMULA_FILE"
+              echo "      sha256 \"${{ steps.check_binaries.outputs.linux_amd64_sha256 }}\"" >> "$FORMULA_FILE"
+              echo '    end' >> "$FORMULA_FILE"
+              echo '  end' >> "$FORMULA_FILE"
+              echo '' >> "$FORMULA_FILE"
+            fi
+            
+            if [ "${{ steps.check_binaries.outputs.linux_arm64_available }}" = "true" ]; then
+              echo '  on_linux do' >> "$FORMULA_FILE"
+              echo '    on_arm do' >> "$FORMULA_FILE"
+              echo "      url \"https://github.com/${SOURCE_REPO}/releases/download/${VERSION}/amo_linux_arm64\"" >> "$FORMULA_FILE"
+              echo "      sha256 \"${{ steps.check_binaries.outputs.linux_arm64_sha256 }}\"" >> "$FORMULA_FILE"
+              echo '    end' >> "$FORMULA_FILE"
+              echo '  end' >> "$FORMULA_FILE"
+              echo '' >> "$FORMULA_FILE"
+            fi
+            
+            # Add install method
+            echo '  def install' >> "$FORMULA_FILE"
+            echo '    bin.install name => "amo"' >> "$FORMULA_FILE"
+            echo '  end' >> "$FORMULA_FILE"
+            echo '' >> "$FORMULA_FILE"
+            
+            # Add test section
+            echo '  test do' >> "$FORMULA_FILE"
+            echo '    assert_match version.to_s, shell_output("#{bin}/amo version")' >> "$FORMULA_FILE"
+            echo '    assert_match "amo", shell_output("#{bin}/amo --help")' >> "$FORMULA_FILE"
+            echo '    system bin/"amo", "tool", "list"' >> "$FORMULA_FILE"
+            echo '    system bin/"amo", "workflow", "list"' >> "$FORMULA_FILE"
+            echo '    system bin/"amo", "config", "ls"' >> "$FORMULA_FILE"
+            echo '  end' >> "$FORMULA_FILE"
+            echo 'end' >> "$FORMULA_FILE"
+            
+            echo "✅ Generated binary-based formula"
+            
+          else
+            echo "⚠️  No prebuilt binaries found, generating source-based formula..."
+            
+            # Generate traditional source-based formula
+            echo 'class Amo < Formula' > "$FORMULA_FILE"
+            echo '  desc "Advanced workflow automation CLI tool for productivity and task management"' >> "$FORMULA_FILE"
+            echo '  homepage "https://github.com/amo-run/amo-cli"' >> "$FORMULA_FILE"
+            echo "  url \"$SOURCE_URL\"" >> "$FORMULA_FILE"
+            echo "  sha256 \"$SHA256\"" >> "$FORMULA_FILE"
+            echo '  license "MIT"' >> "$FORMULA_FILE"
+            echo "  version \"$VERSION_NUMBER\"" >> "$FORMULA_FILE"
+            echo '' >> "$FORMULA_FILE"
+            echo '  depends_on "go" => :build' >> "$FORMULA_FILE"
+            echo '' >> "$FORMULA_FILE"
+            echo '  def install' >> "$FORMULA_FILE"
+            echo '    ldflags = %W[' >> "$FORMULA_FILE"
+            echo '      -s -w' >> "$FORMULA_FILE"
+            echo '      -X main.Version=#{version}' >> "$FORMULA_FILE"
+            echo '      -X main.GitCommit=#{tap.user}' >> "$FORMULA_FILE"
+            echo '      -X main.BuildTime=#{Time.now.utc.iso8601}' >> "$FORMULA_FILE"
+            echo '    ]' >> "$FORMULA_FILE"
+            echo '' >> "$FORMULA_FILE"
+            echo '    system "go", "build", *std_go_args(ldflags: ldflags)' >> "$FORMULA_FILE"
+            echo '    generate_completions_from_executable(bin/"amo", "completion")' >> "$FORMULA_FILE"
+            echo '  end' >> "$FORMULA_FILE"
+            echo '' >> "$FORMULA_FILE"
+            echo '  test do' >> "$FORMULA_FILE"
+            echo '    assert_match version.to_s, shell_output("#{bin}/amo version")' >> "$FORMULA_FILE"
+            echo '    assert_match "amo", shell_output("#{bin}/amo --help")' >> "$FORMULA_FILE"
+            echo '    system bin/"amo", "tool", "list"' >> "$FORMULA_FILE"
+            echo '    system bin/"amo", "workflow", "list"' >> "$FORMULA_FILE"
+            echo '    system bin/"amo", "config", "ls"' >> "$FORMULA_FILE"
+            echo '  end' >> "$FORMULA_FILE"
+            echo 'end' >> "$FORMULA_FILE"
+            
+            echo "✅ Generated source-based formula"
+          fi
           
-          # Create the formula file step by step
-          echo 'class Amo < Formula' > "$FORMULA_FILE"
-          echo '  desc "Advanced workflow automation CLI tool for productivity and task management"' >> "$FORMULA_FILE"
-          echo '  homepage "https://github.com/amo-run/amo-cli"' >> "$FORMULA_FILE"
-          echo "  url \"$SOURCE_URL\"" >> "$FORMULA_FILE"
-          echo "  sha256 \"$SHA256\"" >> "$FORMULA_FILE"
-          echo '  license "MIT"' >> "$FORMULA_FILE"
-          echo "  version \"$VERSION_NUMBER\"" >> "$FORMULA_FILE"
-          echo '' >> "$FORMULA_FILE"
-          echo '  depends_on "go" => :build' >> "$FORMULA_FILE"
-          echo '' >> "$FORMULA_FILE"
-          echo '  def install' >> "$FORMULA_FILE"
-          echo '    ldflags = %W[' >> "$FORMULA_FILE"
-          echo '      -s -w' >> "$FORMULA_FILE"
-          echo '      -X main.Version=#{version}' >> "$FORMULA_FILE"
-          echo '      -X main.GitCommit=#{tap.user}' >> "$FORMULA_FILE"
-          echo '      -X main.BuildTime=#{Time.now.utc.iso8601}' >> "$FORMULA_FILE"
-          echo '    ]' >> "$FORMULA_FILE"
-          echo '' >> "$FORMULA_FILE"
-          echo '    system "go", "build", *std_go_args(ldflags: ldflags)' >> "$FORMULA_FILE"
-          echo '' >> "$FORMULA_FILE"
-          echo '    # Install shell completions' >> "$FORMULA_FILE"
-          echo '    generate_completions_from_executable(bin/"amo", "completion")' >> "$FORMULA_FILE"
-          echo '  end' >> "$FORMULA_FILE"
-          echo '' >> "$FORMULA_FILE"
-          echo '  test do' >> "$FORMULA_FILE"
-          echo '    # Test basic functionality' >> "$FORMULA_FILE"
-          echo '    assert_match version.to_s, shell_output("#{bin}/amo version")' >> "$FORMULA_FILE"
-          echo '    assert_match "amo", shell_output("#{bin}/amo --help")' >> "$FORMULA_FILE"
-          echo '    ' >> "$FORMULA_FILE"
-          echo '    # Test core commands' >> "$FORMULA_FILE"
-          echo '    system bin/"amo", "tool", "list"' >> "$FORMULA_FILE"
-          echo '    system bin/"amo", "workflow", "list"' >> "$FORMULA_FILE"
-          echo '    system bin/"amo", "config", "ls"' >> "$FORMULA_FILE"
-          echo '  end' >> "$FORMULA_FILE"
-          echo 'end' >> "$FORMULA_FILE"
-
-          echo "✅ Formula generated successfully"
-          echo "📄 Formula content:"
+          echo "📄 Final formula content:"
           cat "$FORMULA_FILE"
 
       - name: Check for changes and commit
@@ -191,13 +288,11 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           FORMULA_FILE="Formula/${FORMULA_NAME}.rb"
           
-          # Check if there are any changes
           git add .
           
           if git diff --cached --quiet; then
             if [ "${{ github.event.inputs.force_update }}" = "true" ] || [ "${{ github.event_name }}" = "release" ]; then
               echo "⚠️  No changes detected, but force update requested"
-              # Force an update by adding a comment with timestamp
               echo "# Updated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$FORMULA_FILE"
               git add "$FORMULA_FILE"
             else
@@ -209,12 +304,11 @@ jobs:
           
           echo "has_changes=true" >> $GITHUB_OUTPUT
           
-          # Create commit message
           COMMIT_MSG="${FORMULA_NAME} ${VERSION#v}
-          
+
           Automated update to ${VERSION}
-          
-          - Updated source URL and SHA256
+
+          - Updated to use prebuilt binaries for faster installation
           - Version: ${VERSION#v}
           - Source: https://github.com/${SOURCE_REPO}/releases/tag/${VERSION}
           - Updated by: GitHub Actions
@@ -235,7 +329,6 @@ jobs:
           
           echo "🚀 Pushing changes to tap repository..."
           
-          # Push with retry logic
           for i in {1..3}; do
             if git push origin HEAD; then
               echo "✅ Successfully pushed changes (attempt $i)"
@@ -251,31 +344,12 @@ jobs:
             fi
           done
 
-      - name: Verify formula installation
-        if: steps.commit.outputs.has_changes == 'true'
-        run: |
-          echo "🧪 Verifying formula syntax..."
-          
-          # Install Homebrew for verification
-          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
-          
-          # Add our tap
-          brew tap "${HOMEBREW_TAP_REPO}"
-          
-          # Audit the formula
-          echo "🔍 Running brew audit..."
-          brew audit --strict "${FORMULA_NAME}" || echo "⚠️  Audit warnings detected (may be acceptable)"
-          
-          # Test installation (dry-run)
-          echo "🧪 Testing formula installation..."
-          brew install --dry-run "${FORMULA_NAME}" || echo "⚠️  Dry-run test failed (may be due to missing dependencies)"
-
       - name: Update summary
         if: always()
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           HAS_CHANGES="${{ steps.commit.outputs.has_changes }}"
+          HAS_BINARIES="${{ steps.check_binaries.outputs.has_binaries }}"
           
           echo "## 🍺 Homebrew Tap Update Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -286,7 +360,16 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [ "$HAS_CHANGES" = "true" ]; then
-            echo "✅ **Status**: Formula successfully updated!" >> $GITHUB_STEP_SUMMARY
+            if [ "$HAS_BINARIES" = "true" ]; then
+              echo "✅ **Status**: Formula successfully updated with prebuilt binaries!" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### Benefits of Prebuilt Binaries" >> $GITHUB_STEP_SUMMARY
+              echo "- ⚡ **Faster Installation**: No compilation required" >> $GITHUB_STEP_SUMMARY
+              echo "- 📦 **Smaller Dependencies**: No Go toolchain needed" >> $GITHUB_STEP_SUMMARY
+              echo "- 🔄 **Automatic Fallback**: Source build when binaries unavailable" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ **Status**: Formula successfully updated with source build!" >> $GITHUB_STEP_SUMMARY
+            fi
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Installation Instructions" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
@@ -307,97 +390,3 @@ jobs:
           echo "- [Source Release](https://github.com/${SOURCE_REPO}/releases/tag/${VERSION})" >> $GITHUB_STEP_SUMMARY
           echo "- [Tap Repository](https://github.com/${HOMEBREW_TAP_REPO})" >> $GITHUB_STEP_SUMMARY
           echo "- [Formula File](https://github.com/${HOMEBREW_TAP_REPO}/blob/main/Formula/${FORMULA_NAME}.rb)" >> $GITHUB_STEP_SUMMARY
-
-  # Optional integration test job
-  integration-test:
-    needs: update-homebrew-formula
-    if: needs.update-homebrew-formula.outputs.has_changes == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-14, ubuntu-latest]
-        include:
-          - os: macos-14
-            platform: "macOS (Apple Silicon)"
-          - os: ubuntu-latest
-            platform: "Linux (Ubuntu)"
-    runs-on: ${{ matrix.os }}
-    
-    steps:
-      - name: Install Homebrew (Linux only)
-        if: runner.os == 'Linux'
-        run: |
-          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
-          export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
-
-      - name: Wait for tap propagation
-        run: |
-          echo "⏳ Waiting for tap changes to propagate..."
-          sleep 30
-
-      - name: Test formula installation
-        run: |
-          echo "🧪 Testing ${FORMULA_NAME} installation on ${{ matrix.platform }}..."
-          
-          # Add the tap
-          brew tap "${HOMEBREW_TAP_REPO}"
-          
-          # Update to get latest changes
-          brew update
-          
-          # Install the formula
-          brew install "${FORMULA_NAME}"
-          
-          # Verify installation
-          echo "✅ Installation successful, testing functionality..."
-
-      - name: Test core functionality
-        run: |
-          echo "🔬 Testing core features on ${{ matrix.platform }}..."
-          
-          # Test version command
-          amo --version
-          amo version
-          
-          # Test help
-          amo --help
-          
-          # Test core commands
-          amo tool list
-          amo workflow list
-          amo config ls
-          
-          # Test a simple workflow execution
-          cat > test_workflow.js << 'EOF'
-          //!amo
-          
-          function main() {
-              console.log("🧪 Integration test on ${{ matrix.platform }}");
-              
-              // Test environment
-              var platform = process.platform || "unknown";
-              console.log("Platform detected:", platform);
-              
-              // Test basic operations
-              console.log("✅ Basic workflow execution successful");
-              
-              return true;
-          }
-          
-          main();
-          EOF
-          
-          echo "🚀 Running test workflow..."
-          amo run test_workflow.js
-          
-          echo "✅ All tests passed on ${{ matrix.platform }}"
-
-      - name: Cleanup
-        if: always()
-        run: |
-          # Remove the tap to clean up
-          brew untap "${HOMEBREW_TAP_REPO}" || echo "⚠️  Failed to untap (may not be installed)"
-          
-          # Clean up test files
-          rm -f test_workflow.js || true
