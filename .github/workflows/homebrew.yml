@@ -11,7 +11,8 @@ on:
         type: string
 
 jobs:
-  publish:
+  # Main job: Update Homebrew tap using the marketplace action
+  update-homebrew-tap:
     runs-on: ubuntu-latest
     # Skip prerelease versions for homebrew
     if: github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease)
@@ -20,33 +21,15 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-
-
-      - name: Set variables
-        id: vars
-        run: |
-          # Determine version from either workflow_dispatch input or release event
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.version }}"
-            echo "📦 Using version from workflow_dispatch: $TAG"
-          else
-            TAG=${GITHUB_REF#refs/tags/}
-            echo "📦 Using version from release event: $TAG"
-          fi
-          
-          echo "version=${TAG}" >> $GITHUB_OUTPUT
-          echo "version_without_v=${TAG#v}" >> $GITHUB_OUTPUT
-
-
-
       - name: Wait for release assets
+        if: github.event_name == 'release'
         run: |
           echo "⏳ Waiting for release assets to be available..."
-          VERSION="${{ steps.vars.outputs.version }}"
+          VERSION=${GITHUB_REF#refs/tags/}
           
-          # Wait up to 5 minutes for all assets to be available
-          for i in {1..30}; do
-            echo "Attempt $i/30: Checking release assets..."
+          # Wait up to 3 minutes for all assets to be available
+          for i in {1..18}; do
+            echo "Attempt $i/18: Checking release assets..."
             
             RELEASE_INFO=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/$VERSION")
             ASSET_COUNT=$(echo "$RELEASE_INFO" | jq -r '.assets | length')
@@ -59,185 +42,109 @@ jobs:
               sleep 10
             fi
             
-            if [ $i -eq 30 ]; then
+            if [ $i -eq 18 ]; then
               echo "❌ Timeout waiting for release assets"
               exit 1
             fi
           done
 
-      - name: Get binary URLs and checksums
-        id: binaries
-        run: |
-          # Get release information from GitHub API
-          VERSION="${{ steps.vars.outputs.version }}"
-          echo "🔍 Fetching release information for version: $VERSION"
-          RELEASE_INFO=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/$VERSION")
-          
-          # Debug: Check if we got valid JSON
-          if ! echo "$RELEASE_INFO" | jq empty 2>/dev/null; then
-            echo "❌ Invalid JSON response from GitHub API:"
-            echo "$RELEASE_INFO"
-            exit 1
-          fi
-          
-          # Debug: Show available assets
-          echo "📦 Available assets:"
-          echo "$RELEASE_INFO" | jq -r '.assets[].name' | sed 's/^/  - /'
-          
-          # Extract download URLs for different platforms
-          DARWIN_AMD64_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("darwin_amd64")) | select(.name | contains(".sha256") | not) | .browser_download_url')
-          DARWIN_ARM64_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("darwin_arm64")) | select(.name | contains(".sha256") | not) | .browser_download_url')
-          LINUX_AMD64_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("linux_amd64")) | select(.name | contains(".sha256") | not) | .browser_download_url')
-          LINUX_ARM64_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("linux_arm64")) | select(.name | contains(".sha256") | not) | .browser_download_url')
-          
-          # Get SHA256 URLs
-          DARWIN_AMD64_SHA256_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("darwin_amd64")) | select(.name | contains(".sha256")) | .browser_download_url')
-          DARWIN_ARM64_SHA256_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("darwin_arm64")) | select(.name | contains(".sha256")) | .browser_download_url')
-          LINUX_AMD64_SHA256_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("linux_amd64")) | select(.name | contains(".sha256")) | .browser_download_url')
-          LINUX_ARM64_SHA256_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("linux_arm64")) | select(.name | contains(".sha256")) | .browser_download_url')
-          
-          # Download SHA256 files and extract checksums
-          DARWIN_AMD64_SHA256=$(curl -s "$DARWIN_AMD64_SHA256_URL" | awk '{print $1}')
-          DARWIN_ARM64_SHA256=$(curl -s "$DARWIN_ARM64_SHA256_URL" | awk '{print $1}')
-          LINUX_AMD64_SHA256=$(curl -s "$LINUX_AMD64_SHA256_URL" | awk '{print $1}')
-          LINUX_ARM64_SHA256=$(curl -s "$LINUX_ARM64_SHA256_URL" | awk '{print $1}')
-          
-          # Validate URLs and checksums
-          if [ -z "$DARWIN_AMD64_URL" ] || [ -z "$DARWIN_ARM64_URL" ] || [ -z "$LINUX_AMD64_URL" ] || [ -z "$LINUX_ARM64_URL" ]; then
-            echo "❌ Missing binary URLs"
-            exit 1
-          fi
-          
-          if [ -z "$DARWIN_AMD64_SHA256" ] || [ -z "$DARWIN_ARM64_SHA256" ] || [ -z "$LINUX_AMD64_SHA256" ] || [ -z "$LINUX_ARM64_SHA256" ]; then
-            echo "❌ Missing SHA256 checksums"
-            exit 1
-          fi
-          
-          # Output for use in formula
-          echo "darwin_amd64_url=$DARWIN_AMD64_URL" >> $GITHUB_OUTPUT
-          echo "darwin_amd64_sha256=$DARWIN_AMD64_SHA256" >> $GITHUB_OUTPUT
-          echo "darwin_arm64_url=$DARWIN_ARM64_URL" >> $GITHUB_OUTPUT
-          echo "darwin_arm64_sha256=$DARWIN_ARM64_SHA256" >> $GITHUB_OUTPUT
-          echo "linux_amd64_url=$LINUX_AMD64_URL" >> $GITHUB_OUTPUT
-          echo "linux_amd64_sha256=$LINUX_AMD64_SHA256" >> $GITHUB_OUTPUT
-          echo "linux_arm64_url=$LINUX_ARM64_URL" >> $GITHUB_OUTPUT
-          echo "linux_arm64_sha256=$LINUX_ARM64_SHA256" >> $GITHUB_OUTPUT
-          
-          echo "✅ Binary URLs and checksums retrieved:"
-          echo "  Darwin AMD64: $DARWIN_AMD64_URL"
-          echo "  Darwin ARM64: $DARWIN_ARM64_URL"
-          echo "  Linux AMD64: $LINUX_AMD64_URL"
-          echo "  Linux ARM64: $LINUX_ARM64_URL"
-
-      - name: Generate Formula
-        run: |
-          mkdir -p Formula
-          cat > Formula/amo.rb << 'EOF'
-          class Amo < Formula
-            desc "CLI tool for managing tools and running JavaScript-based workflows"
-            homepage "https://github.com/${{ github.repository }}"
-            license "MIT"
-            version "${{ steps.vars.outputs.version_without_v }}"
-
-            on_macos do
-              if Hardware::CPU.intel?
-                url "${{ steps.binaries.outputs.darwin_amd64_url }}"
-                sha256 "${{ steps.binaries.outputs.darwin_amd64_sha256 }}"
-              elsif Hardware::CPU.arm?
-                url "${{ steps.binaries.outputs.darwin_arm64_url }}"
-                sha256 "${{ steps.binaries.outputs.darwin_arm64_sha256 }}"
-              end
-            end
-
-            on_linux do
-              if Hardware::CPU.intel?
-                url "${{ steps.binaries.outputs.linux_amd64_url }}"
-                sha256 "${{ steps.binaries.outputs.linux_amd64_sha256 }}"
-              elsif Hardware::CPU.arm?
-                url "${{ steps.binaries.outputs.linux_arm64_url }}"
-                sha256 "${{ steps.binaries.outputs.linux_arm64_sha256 }}"
-              end
-            end
-
-            def install
-              # Install the pre-compiled binary
-              bin.install Dir["*"].first => "amo"
-            end
-
-            test do
-              system "#{bin}/amo", "--version"
-              assert_match "amo v${{ steps.vars.outputs.version_without_v }}", shell_output("#{bin}/amo --version")
-              
-              # Test basic functionality
-              system "#{bin}/amo", "version"
-              system "#{bin}/amo", "tool", "list"
-            end
-
-            def caveats
-              <<~EOS
-                Getting started with amo:
-                
-                1. List available workflows:
-                   amo workflow list
-                
-                2. Run a workflow:
-                   amo run <workflow-name>
-                
-                3. Manage tools:
-                   amo tool list
-                
-                4. Get help:
-                   amo --help
-                
-                For more information, visit: https://github.com/${{ github.repository }}
-              EOS
-            end
-          end
-          EOF
-
-      - name: Checkout tap repository
-        uses: actions/checkout@v4
+      - name: Update Homebrew Formula
+        uses: mislav/bump-homebrew-formula-action@v3
         with:
-          repository: amo-run/homebrew-amo
-          token: ${{ secrets.TAP_GITHUB_TOKEN }}
-          path: homebrew-amo
-
-      - name: Update formula in tap
-        run: |
-          # Copy the generated formula to the tap repository
-          cp Formula/amo.rb homebrew-amo/Formula/amo.rb
-          
-          # Verify the formula syntax
-          cd homebrew-amo
-          brew audit --strict Formula/amo.rb || echo "Audit warnings found, but continuing..."
-
-      - name: Commit and push to tap
-        run: |
-          cd homebrew-amo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          git add Formula/amo.rb
-          
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Update amo formula to version ${{ steps.vars.outputs.version }}
-
-            - Version: ${{ steps.vars.outputs.version }}
-            - Uses pre-compiled binaries from GitHub releases
-            - Release: https://github.com/${{ github.repository }}/releases/tag/${{ steps.vars.outputs.version }}
+          formula-name: amo
+          homebrew-tap: amo-run/homebrew-amo
+          base-branch: main
+          commit-message: |
+            amo {{version}}
             
-            Auto-generated by GitHub Actions"
+            Release: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
             
-            git push origin main
-            echo "✅ Successfully updated Homebrew formula"
-          fi
+            Updated by GitHub Actions
+        env:
+          COMMITTER_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
 
-      - name: Verify installation (optional)
-        if: false  # Disabled by default, enable for testing (Requires installed Homebrew)
+  # Optional job: Integration test on key platforms
+  integration-test:
+    needs: update-homebrew-tap
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest]
+        include:
+          - os: macos-14
+            platform: "macOS"
+          - os: ubuntu-latest
+            platform: "Linux"
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Install Homebrew (Linux)
+        if: runner.os == 'Linux'
         run: |
-          # This step can be enabled for testing the formula
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
+
+      - name: Wait for tap update
+        run: |
+          echo "⏳ Waiting for tap to be updated..."
+          sleep 60
+
+      - name: Test Homebrew Installation
+        run: |
+          echo "🧪 Testing installation from tap on ${{ matrix.platform }}..."
+          
+          # Add the tap
           brew tap amo-run/amo
+          
+          # Update tap to get latest formula
+          brew update
+          
+          # Install amo
           brew install amo
+          
+          # Test basic functionality
           amo --version
+          amo version
+          amo tool list
+          amo workflow list
+          amo config ls
+          
+          echo "✅ Integration test passed on ${{ matrix.platform }}"
+
+      - name: Test Core Features
+        run: |
+          echo "🔬 Testing core features on ${{ matrix.platform }}..."
+          
+          # Create a simple test workflow
+          cat > test_simple.js << 'EOF'
+          //!amo
+          
+          function main() {
+              console.log("🔬 Simple integration test");
+              
+              // Test environment variable
+              var platform = getVar("platform") || "unknown";
+              console.log("Platform:", platform);
+              
+              // Test file system operations
+              if (fs.exists(".")) {
+                  console.log("✅ File system operations working");
+              }
+              
+              return true;
+          }
+          
+          main();
+          EOF
+          
+          # Run the test workflow
+          amo run test_simple.js --var platform=${{ matrix.platform }}
+          
+          echo "✅ Core features test passed on ${{ matrix.platform }}"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Remove the tap to clean up
+          brew untap amo-run/amo || true
