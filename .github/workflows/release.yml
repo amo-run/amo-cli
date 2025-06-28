@@ -195,11 +195,31 @@ jobs:
           **Windows:**
           - Windows AMD64: \`${{ env.BINARY_NAME }}_windows_amd64.exe\`
           
-          ### Installation
+          ### Installation Options
+          
+          #### Option 1: Homebrew (Recommended for macOS/Linux)
+          \`\`\`bash
+          brew tap amo-run/amo
+          brew install amo
+          \`\`\`
+          
+          #### Option 2: Direct Download
           1. Download the binary for your platform
           2. Verify checksum (optional): \`sha256sum -c filename.sha256\`
           3. Make executable (Unix): \`chmod +x filename\`
           4. Run: \`./filename --help\`
+          
+          ### Quick Start
+          \`\`\`bash
+          # List available workflows
+          amo workflow list
+          
+          # Run a workflow
+          amo run file-organizer.js --var source_dir=./downloads
+          
+          # Manage tools
+          amo tool list
+          \`\`\`
           EOF
       
       - name: Create Release
@@ -210,5 +230,13 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
           make_latest: true
+          generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Release Summary
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "🎉 Release $VERSION created successfully!"
+          echo "📦 Homebrew formula will be updated automatically"
+          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/$VERSION" 
