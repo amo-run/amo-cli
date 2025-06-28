@@ -20,10 +20,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
+
 
       - name: Set variables
         id: vars
@@ -39,15 +36,86 @@ jobs:
           
           echo "version=${TAG}" >> $GITHUB_OUTPUT
           echo "version_without_v=${TAG#v}" >> $GITHUB_OUTPUT
-          echo "url=https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz" >> $GITHUB_OUTPUT
 
-      - name: Calculate SHA256
-        id: sha256
+
+
+      - name: Wait for release assets
         run: |
-          curl -L ${{ steps.vars.outputs.url }} -o source.tar.gz
-          SHA256=$(shasum -a 256 source.tar.gz | awk '{print $1}')
-          echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
-          echo "Calculated SHA256: ${SHA256}"
+          echo "⏳ Waiting for release assets to be available..."
+          VERSION="${{ steps.vars.outputs.version }}"
+          
+          # Wait up to 5 minutes for all assets to be available
+          for i in {1..30}; do
+            echo "Attempt $i/30: Checking release assets..."
+            
+            RELEASE_INFO=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/$VERSION")
+            ASSET_COUNT=$(echo "$RELEASE_INFO" | jq -r '.assets | length')
+            
+            if [ "$ASSET_COUNT" -ge 8 ]; then
+              echo "✅ Found $ASSET_COUNT assets, proceeding..."
+              break
+            else
+              echo "Found $ASSET_COUNT assets, waiting for more..."
+              sleep 10
+            fi
+            
+            if [ $i -eq 30 ]; then
+              echo "❌ Timeout waiting for release assets"
+              exit 1
+            fi
+          done
+
+      - name: Get binary URLs and checksums
+        id: binaries
+        run: |
+          # Get release information from GitHub API
+          VERSION="${{ steps.vars.outputs.version }}"
+          RELEASE_INFO=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/$VERSION")
+          
+          # Extract download URLs for different platforms
+          DARWIN_AMD64_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("darwin_amd64") and (.name | contains(".sha256") | not)) | .browser_download_url')
+          DARWIN_ARM64_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("darwin_arm64") and (.name | contains(".sha256") | not)) | .browser_download_url')
+          LINUX_AMD64_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("linux_amd64") and (.name | contains(".sha256") | not)) | .browser_download_url')
+          LINUX_ARM64_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("linux_arm64") and (.name | contains(".sha256") | not)) | .browser_download_url')
+          
+          # Get SHA256 URLs
+          DARWIN_AMD64_SHA256_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("darwin_amd64") and (.name | contains(".sha256"))) | .browser_download_url')
+          DARWIN_ARM64_SHA256_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("darwin_arm64") and (.name | contains(".sha256"))) | .browser_download_url')
+          LINUX_AMD64_SHA256_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("linux_amd64") and (.name | contains(".sha256"))) | .browser_download_url')
+          LINUX_ARM64_SHA256_URL=$(echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | contains("linux_arm64") and (.name | contains(".sha256"))) | .browser_download_url')
+          
+          # Download SHA256 files and extract checksums
+          DARWIN_AMD64_SHA256=$(curl -s "$DARWIN_AMD64_SHA256_URL" | awk '{print $1}')
+          DARWIN_ARM64_SHA256=$(curl -s "$DARWIN_ARM64_SHA256_URL" | awk '{print $1}')
+          LINUX_AMD64_SHA256=$(curl -s "$LINUX_AMD64_SHA256_URL" | awk '{print $1}')
+          LINUX_ARM64_SHA256=$(curl -s "$LINUX_ARM64_SHA256_URL" | awk '{print $1}')
+          
+          # Validate URLs and checksums
+          if [ -z "$DARWIN_AMD64_URL" ] || [ -z "$DARWIN_ARM64_URL" ] || [ -z "$LINUX_AMD64_URL" ] || [ -z "$LINUX_ARM64_URL" ]; then
+            echo "❌ Missing binary URLs"
+            exit 1
+          fi
+          
+          if [ -z "$DARWIN_AMD64_SHA256" ] || [ -z "$DARWIN_ARM64_SHA256" ] || [ -z "$LINUX_AMD64_SHA256" ] || [ -z "$LINUX_ARM64_SHA256" ]; then
+            echo "❌ Missing SHA256 checksums"
+            exit 1
+          fi
+          
+          # Output for use in formula
+          echo "darwin_amd64_url=$DARWIN_AMD64_URL" >> $GITHUB_OUTPUT
+          echo "darwin_amd64_sha256=$DARWIN_AMD64_SHA256" >> $GITHUB_OUTPUT
+          echo "darwin_arm64_url=$DARWIN_ARM64_URL" >> $GITHUB_OUTPUT
+          echo "darwin_arm64_sha256=$DARWIN_ARM64_SHA256" >> $GITHUB_OUTPUT
+          echo "linux_amd64_url=$LINUX_AMD64_URL" >> $GITHUB_OUTPUT
+          echo "linux_amd64_sha256=$LINUX_AMD64_SHA256" >> $GITHUB_OUTPUT
+          echo "linux_arm64_url=$LINUX_ARM64_URL" >> $GITHUB_OUTPUT
+          echo "linux_arm64_sha256=$LINUX_ARM64_SHA256" >> $GITHUB_OUTPUT
+          
+          echo "✅ Binary URLs and checksums retrieved:"
+          echo "  Darwin AMD64: $DARWIN_AMD64_URL"
+          echo "  Darwin ARM64: $DARWIN_ARM64_URL"
+          echo "  Linux AMD64: $LINUX_AMD64_URL"
+          echo "  Linux ARM64: $LINUX_ARM64_URL"
 
       - name: Generate Formula
         run: |
@@ -56,24 +124,32 @@ jobs:
           class Amo < Formula
             desc "CLI tool for managing tools and running JavaScript-based workflows"
             homepage "https://github.com/${{ github.repository }}"
-            url "${{ steps.vars.outputs.url }}"
-            sha256 "${{ steps.sha256.outputs.sha256 }}"
             license "MIT"
             version "${{ steps.vars.outputs.version_without_v }}"
 
-            depends_on "go" => :build
+            on_macos do
+              if Hardware::CPU.intel?
+                url "${{ steps.binaries.outputs.darwin_amd64_url }}"
+                sha256 "${{ steps.binaries.outputs.darwin_amd64_sha256 }}"
+              elsif Hardware::CPU.arm?
+                url "${{ steps.binaries.outputs.darwin_arm64_url }}"
+                sha256 "${{ steps.binaries.outputs.darwin_arm64_sha256 }}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.intel?
+                url "${{ steps.binaries.outputs.linux_amd64_url }}"
+                sha256 "${{ steps.binaries.outputs.linux_amd64_sha256 }}"
+              elsif Hardware::CPU.arm?
+                url "${{ steps.binaries.outputs.linux_arm64_url }}"
+                sha256 "${{ steps.binaries.outputs.linux_arm64_sha256 }}"
+              end
+            end
 
             def install
-              # Set version info for build
-              ldflags = %W[
-                -s -w
-                -X main.Version=${{ steps.vars.outputs.version }}
-                -X main.GitCommit=#{Utils.git_short_head}
-                -X main.BuildTime=#{Time.now.utc.strftime("%Y-%m-%dT%H:%M:%SZ")}
-                -X main.BuildBy=homebrew
-              ]
-
-              system "go", "build", *std_go_args(ldflags: ldflags), "-o", bin/"amo", "."
+              # Install the pre-compiled binary
+              bin.install Dir["*"].first => "amo"
             end
 
             test do
@@ -137,7 +213,7 @@ jobs:
             git commit -m "Update amo formula to version ${{ steps.vars.outputs.version }}
 
             - Version: ${{ steps.vars.outputs.version }}
-            - SHA256: ${{ steps.sha256.outputs.sha256 }}
+            - Uses pre-compiled binaries from GitHub releases
             - Release: https://github.com/${{ github.repository }}/releases/tag/${{ steps.vars.outputs.version }}
             
             Auto-generated by GitHub Actions"
