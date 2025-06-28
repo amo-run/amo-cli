@@ -21,11 +21,24 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Set version variable
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION=${{ github.event.release.tag_name }}
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION=${{ github.event.inputs.version }}
+          else
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version set to: $VERSION"
+
       - name: Wait for release assets
         if: github.event_name == 'release'
         run: |
           echo "⏳ Waiting for release assets to be available..."
-          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${{ steps.version.outputs.version }}
           
           # Wait up to 3 minutes for all assets to be available
           for i in {1..18}; do
@@ -57,7 +70,7 @@ jobs:
           commit-message: |
             amo {{version}}
             
-            Release: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+            Release: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}
             
             Updated by GitHub Actions
         env:
