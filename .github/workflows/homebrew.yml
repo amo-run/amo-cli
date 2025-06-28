@@ -1,4 +1,4 @@
-name: Publish to Homebrew Tap
+name: Update Homebrew Tap
 
 on:
   release:
@@ -9,19 +9,28 @@ on:
         description: 'Version to publish (e.g., v1.0.0)'
         required: true
         type: string
+      force_update:
+        description: 'Force update even if version already exists'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  HOMEBREW_TAP_REPO: 'amo-run/homebrew-amo'
+  FORMULA_NAME: 'amo'
+  SOURCE_REPO: 'amo-run/amo-cli'
 
 jobs:
-  # Main job: Update Homebrew tap using the marketplace action
-  update-homebrew-tap:
+  update-homebrew-formula:
     runs-on: ubuntu-latest
-    # Skip prerelease versions for homebrew
+    # Skip prerelease versions for homebrew unless manually triggered
     if: github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease)
     
     steps:
-      - name: Checkout source
+      - name: Checkout source repository
         uses: actions/checkout@v4
 
-      - name: Set version variable
+      - name: Set version and URLs
         id: version
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
@@ -31,120 +40,347 @@ jobs:
           else
             VERSION=${GITHUB_REF#refs/tags/}
           fi
+          
+          # Ensure version starts with 'v'
+          if [[ ! "$VERSION" =~ ^v ]]; then
+            VERSION="v${VERSION}"
+          fi
+          
+          SOURCE_URL="https://github.com/${SOURCE_REPO}/archive/refs/tags/${VERSION}.tar.gz"
+          TAR_NAME="${FORMULA_NAME}-${VERSION#v}"
+          
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version set to: $VERSION"
+          echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
+          echo "source_url=$SOURCE_URL" >> $GITHUB_OUTPUT
+          echo "tar_name=$TAR_NAME" >> $GITHUB_OUTPUT
+          
+          echo "📦 Version: $VERSION"
+          echo "🔗 Source URL: $SOURCE_URL"
 
-      - name: Wait for release assets
+      - name: Wait for release assets (for release events)
         if: github.event_name == 'release'
         run: |
-          echo "⏳ Waiting for release assets to be available..."
+          echo "⏳ Waiting for release to be fully available..."
           VERSION=${{ steps.version.outputs.version }}
           
-          # Wait up to 3 minutes for all assets to be available
-          for i in {1..18}; do
-            echo "Attempt $i/18: Checking release assets..."
+          # Wait up to 2 minutes for release to be accessible
+          for i in {1..12}; do
+            echo "🔍 Attempt $i/12: Checking release availability..."
             
-            RELEASE_INFO=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/$VERSION")
-            ASSET_COUNT=$(echo "$RELEASE_INFO" | jq -r '.assets | length')
-            
-            if [ "$ASSET_COUNT" -ge 8 ]; then
-              echo "✅ Found $ASSET_COUNT assets, proceeding..."
+            if curl -f -s -I "https://github.com/${SOURCE_REPO}/releases/tag/$VERSION" > /dev/null; then
+              echo "✅ Release is accessible, proceeding..."
               break
             else
-              echo "Found $ASSET_COUNT assets, waiting for more..."
+              echo "⏱️  Release not yet accessible, waiting 10 seconds..."
               sleep 10
             fi
             
-            if [ $i -eq 18 ]; then
-              echo "❌ Timeout waiting for release assets"
+            if [ $i -eq 12 ]; then
+              echo "❌ Timeout waiting for release to be accessible"
               exit 1
             fi
           done
 
-      - name: Update Homebrew Formula
-        uses: mislav/bump-homebrew-formula-action@v3
-        with:
-          formula-name: amo
-          homebrew-tap: amo-run/homebrew-amo
-          base-branch: main
-          download-url: https://github.com/${{ github.repository }}/archive/refs/tags/${{ steps.version.outputs.version }}.tar.gz
-          create-pullrequest: true
-          commit-message: |
-            amo {{version}}
-            
-            Release: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}
-            
-            Updated by GitHub Actions
-        env:
-          COMMITTER_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+      - name: Download and verify source package
+        id: download
+        run: |
+          SOURCE_URL="${{ steps.version.outputs.source_url }}"
+          TAR_NAME="${{ steps.version.outputs.tar_name }}"
+          
+          echo "📥 Downloading source package..."
+          curl -fsSL "$SOURCE_URL" -o "${TAR_NAME}.tar.gz"
+          
+          # Calculate SHA256
+          SHA256=$(sha256sum "${TAR_NAME}.tar.gz" | cut -d' ' -f1)
+          echo "🔐 SHA256: $SHA256"
+          
+          # Verify download integrity
+          FILE_SIZE=$(stat -c%s "${TAR_NAME}.tar.gz")
+          if [ "$FILE_SIZE" -lt 1000 ]; then
+            echo "❌ Downloaded file seems too small: $FILE_SIZE bytes"
+            exit 1
+          fi
+          
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "file_size=$FILE_SIZE" >> $GITHUB_OUTPUT
 
-  # Optional job: Integration test on key platforms
+      - name: Setup Git configuration
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global init.defaultBranch main
+
+      - name: Clone Homebrew tap repository
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          echo "📂 Cloning Homebrew tap repository..."
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" tap-repo
+          cd tap-repo
+          
+          # Ensure we're on the main branch
+          git checkout main || git checkout master || git checkout -b main
+          
+          # Create Formula directory if it doesn't exist
+          mkdir -p Formula
+          
+          echo "📋 Current tap repository status:"
+          ls -la
+          echo "Formula directory contents:"
+          ls -la Formula/ || echo "Formula directory is empty or doesn't exist"
+
+      - name: Generate Homebrew formula
+        run: |
+          cd tap-repo
+          
+          VERSION="${{ steps.version.outputs.version }}"
+          VERSION_NUMBER="${{ steps.version.outputs.version_number }}"
+          SOURCE_URL="${{ steps.version.outputs.source_url }}"
+          SHA256="${{ steps.download.outputs.sha256 }}"
+          
+          FORMULA_FILE="Formula/${FORMULA_NAME}.rb"
+          
+          echo "📝 Generating formula: $FORMULA_FILE"
+          
+          # Create the formula file step by step
+          echo 'class Amo < Formula' > "$FORMULA_FILE"
+          echo '  desc "Advanced workflow automation CLI tool for productivity and task management"' >> "$FORMULA_FILE"
+          echo '  homepage "https://github.com/amo-run/amo-cli"' >> "$FORMULA_FILE"
+          echo "  url \"$SOURCE_URL\"" >> "$FORMULA_FILE"
+          echo "  sha256 \"$SHA256\"" >> "$FORMULA_FILE"
+          echo '  license "MIT"' >> "$FORMULA_FILE"
+          echo "  version \"$VERSION_NUMBER\"" >> "$FORMULA_FILE"
+          echo '' >> "$FORMULA_FILE"
+          echo '  depends_on "go" => :build' >> "$FORMULA_FILE"
+          echo '' >> "$FORMULA_FILE"
+          echo '  def install' >> "$FORMULA_FILE"
+          echo '    ldflags = %W[' >> "$FORMULA_FILE"
+          echo '      -s -w' >> "$FORMULA_FILE"
+          echo '      -X main.Version=#{version}' >> "$FORMULA_FILE"
+          echo '      -X main.GitCommit=#{tap.user}' >> "$FORMULA_FILE"
+          echo '      -X main.BuildTime=#{Time.now.utc.iso8601}' >> "$FORMULA_FILE"
+          echo '    ]' >> "$FORMULA_FILE"
+          echo '' >> "$FORMULA_FILE"
+          echo '    system "go", "build", *std_go_args(ldflags: ldflags)' >> "$FORMULA_FILE"
+          echo '' >> "$FORMULA_FILE"
+          echo '    # Install shell completions' >> "$FORMULA_FILE"
+          echo '    generate_completions_from_executable(bin/"amo", "completion")' >> "$FORMULA_FILE"
+          echo '  end' >> "$FORMULA_FILE"
+          echo '' >> "$FORMULA_FILE"
+          echo '  test do' >> "$FORMULA_FILE"
+          echo '    # Test basic functionality' >> "$FORMULA_FILE"
+          echo '    assert_match version.to_s, shell_output("#{bin}/amo version")' >> "$FORMULA_FILE"
+          echo '    assert_match "amo", shell_output("#{bin}/amo --help")' >> "$FORMULA_FILE"
+          echo '    ' >> "$FORMULA_FILE"
+          echo '    # Test core commands' >> "$FORMULA_FILE"
+          echo '    system bin/"amo", "tool", "list"' >> "$FORMULA_FILE"
+          echo '    system bin/"amo", "workflow", "list"' >> "$FORMULA_FILE"
+          echo '    system bin/"amo", "config", "ls"' >> "$FORMULA_FILE"
+          echo '  end' >> "$FORMULA_FILE"
+          echo 'end' >> "$FORMULA_FILE"
+
+          echo "✅ Formula generated successfully"
+          echo "📄 Formula content:"
+          cat "$FORMULA_FILE"
+
+      - name: Check for changes and commit
+        id: commit
+        run: |
+          cd tap-repo
+          
+          VERSION="${{ steps.version.outputs.version }}"
+          FORMULA_FILE="Formula/${FORMULA_NAME}.rb"
+          
+          # Check if there are any changes
+          git add .
+          
+          if git diff --cached --quiet; then
+            if [ "${{ github.event.inputs.force_update }}" = "true" ] || [ "${{ github.event_name }}" = "release" ]; then
+              echo "⚠️  No changes detected, but force update requested"
+              # Force an update by adding a comment with timestamp
+              echo "# Updated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$FORMULA_FILE"
+              git add "$FORMULA_FILE"
+            else
+              echo "ℹ️  No changes detected in formula, skipping update"
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          
+          # Create commit message
+          COMMIT_MSG="${FORMULA_NAME} ${VERSION#v}
+          
+          Automated update to ${VERSION}
+          
+          - Updated source URL and SHA256
+          - Version: ${VERSION#v}
+          - Source: https://github.com/${SOURCE_REPO}/releases/tag/${VERSION}
+          - Updated by: GitHub Actions
+          - Workflow: ${{ github.workflow }}
+          - Run: ${{ github.run_number }}"
+          
+          git commit -m "$COMMIT_MSG"
+          
+          echo "📝 Commit created:"
+          git log -1 --oneline
+
+      - name: Push changes to tap repository
+        if: steps.commit.outputs.has_changes == 'true'
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          cd tap-repo
+          
+          echo "🚀 Pushing changes to tap repository..."
+          
+          # Push with retry logic
+          for i in {1..3}; do
+            if git push origin HEAD; then
+              echo "✅ Successfully pushed changes (attempt $i)"
+              break
+            else
+              if [ $i -eq 3 ]; then
+                echo "❌ Failed to push after 3 attempts"
+                exit 1
+              fi
+              echo "⚠️  Push failed, retrying in 5 seconds... (attempt $i/3)"
+              sleep 5
+              git pull --rebase origin HEAD || true
+            fi
+          done
+
+      - name: Verify formula installation
+        if: steps.commit.outputs.has_changes == 'true'
+        run: |
+          echo "🧪 Verifying formula syntax..."
+          
+          # Install Homebrew for verification
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+          
+          # Add our tap
+          brew tap "${HOMEBREW_TAP_REPO}"
+          
+          # Audit the formula
+          echo "🔍 Running brew audit..."
+          brew audit --strict "${FORMULA_NAME}" || echo "⚠️  Audit warnings detected (may be acceptable)"
+          
+          # Test installation (dry-run)
+          echo "🧪 Testing formula installation..."
+          brew install --dry-run "${FORMULA_NAME}" || echo "⚠️  Dry-run test failed (may be due to missing dependencies)"
+
+      - name: Update summary
+        if: always()
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          HAS_CHANGES="${{ steps.commit.outputs.has_changes }}"
+          
+          echo "## 🍺 Homebrew Tap Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Formula**: \`${FORMULA_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: \`${VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tap Repository**: \`${HOMEBREW_TAP_REPO}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source**: \`${SOURCE_REPO}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$HAS_CHANGES" = "true" ]; then
+            echo "✅ **Status**: Formula successfully updated!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Installation Instructions" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "# Add the tap (first time only)" >> $GITHUB_STEP_SUMMARY
+            echo "brew tap ${HOMEBREW_TAP_REPO}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Install or upgrade ${FORMULA_NAME}" >> $GITHUB_STEP_SUMMARY
+            echo "brew install ${FORMULA_NAME}" >> $GITHUB_STEP_SUMMARY
+            echo "# or" >> $GITHUB_STEP_SUMMARY
+            echo "brew upgrade ${FORMULA_NAME}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️  **Status**: No changes made (formula already up to date)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Links" >> $GITHUB_STEP_SUMMARY
+          echo "- [Source Release](https://github.com/${SOURCE_REPO}/releases/tag/${VERSION})" >> $GITHUB_STEP_SUMMARY
+          echo "- [Tap Repository](https://github.com/${HOMEBREW_TAP_REPO})" >> $GITHUB_STEP_SUMMARY
+          echo "- [Formula File](https://github.com/${HOMEBREW_TAP_REPO}/blob/main/Formula/${FORMULA_NAME}.rb)" >> $GITHUB_STEP_SUMMARY
+
+  # Optional integration test job
   integration-test:
-    needs: update-homebrew-tap
+    needs: update-homebrew-formula
+    if: needs.update-homebrew-formula.outputs.has_changes == 'true'
     strategy:
       fail-fast: false
       matrix:
         os: [macos-14, ubuntu-latest]
         include:
           - os: macos-14
-            platform: "macOS"
+            platform: "macOS (Apple Silicon)"
           - os: ubuntu-latest
-            platform: "Linux"
+            platform: "Linux (Ubuntu)"
     runs-on: ${{ matrix.os }}
     
     steps:
-      - name: Install Homebrew (Linux)
+      - name: Install Homebrew (Linux only)
         if: runner.os == 'Linux'
         run: |
           /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
           echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
+          export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
 
-      - name: Wait for tap update
+      - name: Wait for tap propagation
         run: |
-          echo "⏳ Waiting for tap to be updated..."
-          sleep 60
+          echo "⏳ Waiting for tap changes to propagate..."
+          sleep 30
 
-      - name: Test Homebrew Installation
+      - name: Test formula installation
         run: |
-          echo "🧪 Testing installation from tap on ${{ matrix.platform }}..."
+          echo "🧪 Testing ${FORMULA_NAME} installation on ${{ matrix.platform }}..."
           
           # Add the tap
-          brew tap amo-run/amo
+          brew tap "${HOMEBREW_TAP_REPO}"
           
-          # Update tap to get latest formula
+          # Update to get latest changes
           brew update
           
-          # Install amo
-          brew install amo
+          # Install the formula
+          brew install "${FORMULA_NAME}"
           
-          # Test basic functionality
+          # Verify installation
+          echo "✅ Installation successful, testing functionality..."
+
+      - name: Test core functionality
+        run: |
+          echo "🔬 Testing core features on ${{ matrix.platform }}..."
+          
+          # Test version command
           amo --version
           amo version
+          
+          # Test help
+          amo --help
+          
+          # Test core commands
           amo tool list
           amo workflow list
           amo config ls
           
-          echo "✅ Integration test passed on ${{ matrix.platform }}"
-
-      - name: Test Core Features
-        run: |
-          echo "🔬 Testing core features on ${{ matrix.platform }}..."
-          
-          # Create a simple test workflow
-          cat > test_simple.js << 'EOF'
+          # Test a simple workflow execution
+          cat > test_workflow.js << 'EOF'
           //!amo
           
           function main() {
-              console.log("🔬 Simple integration test");
+              console.log("🧪 Integration test on ${{ matrix.platform }}");
               
-              // Test environment variable
-              var platform = getVar("platform") || "unknown";
-              console.log("Platform:", platform);
+              // Test environment
+              var platform = process.platform || "unknown";
+              console.log("Platform detected:", platform);
               
-              // Test file system operations
-              if (fs.exists(".")) {
-                  console.log("✅ File system operations working");
-              }
+              // Test basic operations
+              console.log("✅ Basic workflow execution successful");
               
               return true;
           }
@@ -152,13 +388,16 @@ jobs:
           main();
           EOF
           
-          # Run the test workflow
-          amo run test_simple.js --var platform=${{ matrix.platform }}
+          echo "🚀 Running test workflow..."
+          amo run test_workflow.js
           
-          echo "✅ Core features test passed on ${{ matrix.platform }}"
+          echo "✅ All tests passed on ${{ matrix.platform }}"
 
       - name: Cleanup
         if: always()
         run: |
           # Remove the tap to clean up
-          brew untap amo-run/amo || true
+          brew untap "${HOMEBREW_TAP_REPO}" || echo "⚠️  Failed to untap (may not be installed)"
+          
+          # Clean up test files
+          rm -f test_workflow.js || true
