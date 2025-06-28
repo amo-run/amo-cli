@@ -62,7 +62,8 @@ func (e *Engine) registerFileSystemAPI() {
 		"generateUniqueFilename": e.generateUniqueFilename,
 
 		// Hash functions
-		"md5": e.getFileMD5,
+		"md5":    e.getFileMD5,
+		"sha256": e.getFileSHA256,
 	})
 }
 
@@ -284,6 +285,17 @@ func fileInfoToMap(info filesystem.FileInfo) map[string]interface{} {
 // Hash functions
 func (e *Engine) getFileMD5(path string) map[string]interface{} {
 	hash, err := e.filesystem.GetFileMD5(path)
+	if err != nil {
+		return e.createResult(false, nil, err)
+	}
+	return map[string]interface{}{
+		"success": true,
+		"hash":    hash,
+	}
+}
+
+func (e *Engine) getFileSHA256(path string) map[string]interface{} {
+	hash, err := e.filesystem.GetFileSHA256(path)
 	if err != nil {
 		return e.createResult(false, nil, err)
 	}

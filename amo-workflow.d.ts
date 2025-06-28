@@ -141,6 +141,7 @@ declare const fs: {
   
   // Hash functions
   md5(path: string): Amo.HashResult;
+  sha256(path: string): Amo.HashResult;
 };
 
 // HTTP/Network API

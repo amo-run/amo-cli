@@ -8,7 +8,7 @@ function main() {
     console.log("========================================");
 
     // Get current working directory using fs API
-    var cwdResult = fs.cwd();
+    var cwdResult = fs.getCurrentWorkingPath();
     if (cwdResult.error) {
         console.error("❌ Failed to get working directory:", cwdResult.error);
         return false;

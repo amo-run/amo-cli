@@ -3,6 +3,7 @@ package filesystem
 import (
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -521,6 +522,28 @@ func (fs *FileSystem) GetFileMD5(path string) (string, error) {
 	hash := md5.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return "", fmt.Errorf("failed to calculate MD5 hash: %w", err)
+	}
+
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// GetFileSHA256 calculates the SHA256 hash of a file
+func (fs *FileSystem) GetFileSHA256(path string) (string, error) {
+	path = fs.crossPlatform.NormalizePath(path)
+
+	if !fs.IsFile(path) {
+		return "", fmt.Errorf("path is not a file: %s", path)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file for SHA256 calculation: %w", err)
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("failed to calculate SHA256 hash: %w", err)
 	}
 
 	return hex.EncodeToString(hash.Sum(nil)), nil
