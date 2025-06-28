@@ -1,0 +1,195 @@
+name: Deploy GitHub Pages
+
+on:
+  release:
+    types: [published, released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to deploy (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        
+      - name: Get release info
+        id: release
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG_NAME=${{ github.event.release.tag_name }}
+            RELEASE_NAME="${{ github.event.release.name }}"
+            RELEASE_BODY="${{ github.event.release.body }}"
+          else
+            TAG_NAME=${{ github.event.inputs.tag }}
+            RELEASE_NAME="$TAG_NAME"
+            RELEASE_BODY="Manual deployment of release $TAG_NAME"
+          fi
+          
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+          echo "Deploying release: $TAG_NAME"
+          
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ steps.release.outputs.tag_name }}"
+          mkdir -p site
+          cd site
+          
+          echo "📥 Downloading release assets for $TAG_NAME..."
+          
+          # Download all release assets
+          gh release download "$TAG_NAME" --repo "${{ github.repository }}" || {
+            echo "❌ Failed to download release assets"
+            echo "Available releases:"
+            gh release list --repo "${{ github.repository }}" --limit 10
+            exit 1
+          }
+          
+          # List downloaded files for verification
+          echo "✅ Downloaded files:"
+          ls -la
+          
+          # Verify we have the expected binary files
+          BINARY_COUNT=$(ls amo_* 2>/dev/null | grep -v "\.sha256$" | wc -l || echo "0")
+          if [ "$BINARY_COUNT" -eq 0 ]; then
+            echo "❌ No binary files found!"
+            echo "Files in directory:"
+            ls -la
+            exit 1
+          fi
+          
+          echo "📦 Found $BINARY_COUNT binary files"
+          
+      - name: Generate download website
+        run: |
+          TAG_NAME="${{ steps.release.outputs.tag_name }}"
+          RELEASE_NAME="${{ steps.release.outputs.release_name }}"
+          cd site
+          
+          echo "🏗️ Generating download website from templates..."
+          
+          # Make the Python scripts executable
+          chmod +x ../.github/scripts/generate-download-page.py
+          chmod +x ../.github/scripts/generate-download-page-zh.py
+          
+          # Generate the English download page
+          echo "📄 Generating English version..."
+          python3 ../.github/scripts/generate-download-page.py \
+            ../.github/templates/download-page.html \
+            "$TAG_NAME" \
+            "$RELEASE_NAME"
+          
+          # Generate the Chinese download page
+          echo "📄 Generating Chinese version..."
+          python3 ../.github/scripts/generate-download-page-zh.py \
+            ../.github/templates/download-page-zh.html \
+            "$TAG_NAME" \
+            "$RELEASE_NAME"
+          
+          echo "✅ Generated website files:"
+          ls -la
+          echo "✅ Generated Chinese website files:"
+          ls -la zh/
+          
+          # Verify both index.html files were created successfully
+          if [[ ! -f "index.html" ]]; then
+            echo "❌ Failed to create index.html"
+            exit 1
+          fi
+          
+          if [[ ! -f "zh/index.html" ]]; then
+            echo "❌ Failed to create zh/index.html"
+            exit 1
+          fi
+          
+          # Display first few lines for verification
+          echo "📄 English website preview (first 20 lines):"
+          head -20 index.html
+          echo ""
+          echo "📄 Chinese website preview (first 20 lines):"
+          head -20 zh/index.html
+          
+      - name: Create CNAME file for custom domain
+        run: |
+          cd site
+          echo "cli.release.amo.run" > CNAME
+          echo "✅ Created CNAME file for custom domain"
+          
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './site'
+          
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        
+      - name: Deployment summary
+        if: always()
+        run: |
+          TAG_NAME="${{ steps.release.outputs.tag_name }}"
+          SITE_URL="${{ steps.deployment.outputs.page_url }}"
+          
+          echo "## 🌐 GitHub Pages Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release**: \`$TAG_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Site URL**: $SITE_URL" >> $GITHUB_STEP_SUMMARY
+          echo "- **Custom Domain**: https://cli.release.amo.run" >> $GITHUB_STEP_SUMMARY
+          echo "- **Chinese Version**: https://cli.release.amo.run/zh/" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚡ Quick Installation" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Unix/Linux/macOS (auto-detects platform)" >> $GITHUB_STEP_SUMMARY
+          echo "curl -fsSL https://cli.release.amo.run/install.sh | sh" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Windows PowerShell" >> $GITHUB_STEP_SUMMARY
+          echo "iex ((New-Object System.Net.WebClient).DownloadString('https://cli.release.amo.run/install.ps1'))" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Direct Download Examples" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Linux AMD64" >> $GITHUB_STEP_SUMMARY
+          echo "curl -fsSL https://cli.release.amo.run/amo_linux_amd64 -o amo" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# macOS AMD64 (Intel)" >> $GITHUB_STEP_SUMMARY
+          echo "curl -fsSL https://cli.release.amo.run/amo_darwin_amd64 -o amo" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# macOS ARM64 (Apple Silicon)" >> $GITHUB_STEP_SUMMARY
+          echo "curl -fsSL https://cli.release.amo.run/amo_darwin_arm64 -o amo" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Windows AMD64" >> $GITHUB_STEP_SUMMARY
+          echo "curl -fsSL https://cli.release.amo.run/amo_windows_amd64.exe -o amo.exe" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📜 Installation Scripts" >> $GITHUB_STEP_SUMMARY
+          echo "- **Unix/Linux/macOS**: https://cli.release.amo.run/install.sh" >> $GITHUB_STEP_SUMMARY
+          echo "- **Windows PowerShell**: https://cli.release.amo.run/install.ps1" >> $GITHUB_STEP_SUMMARY
+          echo "- **Windows Batch**: https://cli.release.amo.run/install.bat" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚙️ Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Configure your domain \`cli.release.amo.run\` to point to GitHub Pages" >> $GITHUB_STEP_SUMMARY
+          echo "2. Enable HTTPS in repository settings → Pages" >> $GITHUB_STEP_SUMMARY
+          echo "3. Verify downloads work: \`curl -I https://cli.release.amo.run/amo_linux_amd64\`" >> $GITHUB_STEP_SUMMARY 

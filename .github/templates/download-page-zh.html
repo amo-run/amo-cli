@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amo CLI - 下载中心</title>
+    <meta name="description" content="下载 Amo CLI - 高级工作流自动化工具，提升生产力和任务管理效率">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+            padding: 40px 0;
+        }
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .version-banner {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 30px auto;
+            max-width: 500px;
+            text-align: center;
+            color: white;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .content {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        .quick-install {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 30px 0;
+            border-left: 4px solid #007acc;
+        }
+        .quick-install h3 {
+            color: #007acc;
+            margin-bottom: 15px;
+        }
+        .command {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            overflow-x: auto;
+            margin: 10px 0;
+            position: relative;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #4a5568;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .copy-btn:hover { background: #2d3748; }
+        .download-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 25px;
+            margin: 30px 0;
+        }
+        .platform-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 25px;
+            background: linear-gradient(145deg, #ffffff 0%, #f7fafc 100%);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .platform-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.1);
+            border-color: #007acc;
+        }
+        .platform-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #007acc, #40e0d0);
+        }
+        .platform-card h3 {
+            color: #2d3748;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .platform-icon {
+            font-size: 1.5rem;
+        }
+        .download-link {
+            display: inline-block;
+            padding: 12px 20px;
+            background: linear-gradient(145deg, #007acc, #0056b3);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            margin: 8px 8px 8px 0;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            box-shadow: 0 4px 8px rgba(0,122,204,0.3);
+        }
+        .download-link:hover {
+            background: linear-gradient(145deg, #0056b3, #004085);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,122,204,0.4);
+        }
+        .file-info {
+            font-size: 0.9rem;
+            color: #6b7280;
+            margin-top: 10px;
+        }
+        .checksums {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 30px 0;
+        }
+        .checksums h3 {
+            color: #2d3748;
+            margin-bottom: 20px;
+        }
+        .checksum-item {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+        }
+        .checksum-filename {
+            font-weight: bold;
+            color: #007acc;
+            margin-bottom: 5px;
+        }
+        .checksum-hash {
+            color: #6b7280;
+            word-break: break-all;
+        }
+        .footer-links {
+            text-align: center;
+            padding: 30px 0;
+            border-top: 1px solid #e2e8f0;
+            margin-top: 40px;
+        }
+        .footer-links a {
+            color: #007acc;
+            text-decoration: none;
+            margin: 0 15px;
+            font-weight: 500;
+        }
+        .footer-links a:hover {
+            text-decoration: underline;
+        }
+        .language-switch {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
+        }
+        .language-switch a {
+            color: white;
+            text-decoration: none;
+            background: rgba(255,255,255,0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        .language-switch a:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        @media (max-width: 768px) {
+            .header h1 { font-size: 2rem; }
+            .container { padding: 15px; }
+            .content { padding: 25px; }
+            .download-grid { grid-template-columns: 1fr; }
+            .language-switch {
+                position: static;
+                text-align: center;
+                margin-top: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="language-switch">
+            <a href="../">🌐 English</a>
+        </div>
+        <div class="header">
+            <h1>🚀 Amo CLI</h1>
+            <p>高级工作流自动化命令行工具，提升生产力</p>
+            
+            <div class="version-banner">
+                <h3>📦 {{RELEASE_NAME}}</h3>
+                <p>最新版本：<strong>{{TAG_NAME}}</strong></p>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div class="quick-install">
+                <h3>⚡ 快速安装</h3>
+                <p>选择您的平台并运行安装命令：</p>
+                
+                <div style="margin: 20px 0;">
+                    <h4 style="color: #007acc; margin-bottom: 10px;">🐧 Linux / 🍎 macOS</h4>
+
+                    <div class="command">
+                        <button class="copy-btn" onclick="copyToClipboard(this, 'curl -fsSL https://cli.release.amo.run/install.sh | sh')">复制</button>
+                        curl -fsSL https://cli.release.amo.run/install.sh | sh
+                    </div>
+                    <p style="font-size: 0.9rem; color: #6b7280; margin-top: 5px;">
+                        自动检测您的平台和架构
+                    </p>
+                </div>
+                
+                <div style="margin: 20px 0;">
+                    <h5 style="color: #007acc; margin-bottom: 10px;">或者，使用 🍺 Homebrew</h5>
+                    <p>
+                        如果您使用 Homebrew，可以通过以下命令安装 Amo CLI：
+                    </p>
+                    <div style="margin-bottom: 10px;">
+                        <strong>首次安装：</strong>
+                        <div class="command">
+                            <button class="copy-btn" onclick="copyToClipboard(this, 'brew tap amo-run/amo && brew install amo')">复制</button>
+                            brew tap amo-run/amo && brew install amo
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <strong>更新现有安装：</strong>
+                        <div class="command">
+                            <button class="copy-btn" onclick="copyToClipboard(this, 'brew upgrade amo')">复制</button>
+                            brew upgrade amo
+                        </div>
+                    </div>
+                    <p style="font-size: 0.9rem; color: #6b7280; margin-top: 5px;">
+                        需要 Homebrew 包管理器
+                    </p>
+                </div>
+                
+                <div style="margin: 20px 0;">
+                    <h4 style="color: #007acc; margin-bottom: 10px;">🪟 Windows</h4>
+                    <div style="margin-bottom: 10px;">
+                        <strong>PowerShell (推荐)：</strong>
+                        <div class="command">
+                            <button class="copy-btn" onclick="copyToClipboard(this, 'iex ((New-Object System.Net.WebClient).DownloadString(&#39;https://cli.release.amo.run/install.ps1&#39;))')">复制</button>
+                            iex ((New-Object System.Net.WebClient).DownloadString('https://cli.release.amo.run/install.ps1'))
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <strong>命令提示符：</strong>
+                        <div class="command">
+                            <button class="copy-btn" onclick="copyToClipboard(this, 'curl -fsSL https://cli.release.amo.run/install.bat -o install.bat && install.bat')">复制</button>
+                            curl -fsSL https://cli.release.amo.run/install.bat -o install.bat && install.bat
+                        </div>
+                    </div>
+                    <p style="font-size: 0.9rem; color: #6b7280; margin-top: 5px;">
+                        系统级安装需要管理员权限运行
+                    </p>
+                </div>
+                
+            </div>
+            
+            <h2>📥 下载二进制文件</h2>
+            <p>为您的平台选择合适的二进制文件：</p>
+            
+            <div class="download-grid">
+                {{DOWNLOAD_SECTIONS}}
+            </div>
+            
+            <div class="checksums">
+                <h3>🔐 文件校验和 (SHA256)</h3>
+                <p>验证下载文件的完整性：</p>
+                {{CHECKSUMS}}
+            </div>
+            
+            <div class="footer-links">
+                <a href="https://github.com/amo-run/amo-cli">📖 文档</a>
+                <a href="https://github.com/amo-run/amo-cli/releases">📋 所有版本</a>
+                <a href="https://github.com/amo-run/amo-cli/issues">🐛 反馈问题</a>
+                <a href="https://github.com/amo-run/amo-cli">⭐ 在 GitHub 上加星</a>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function copyToClipboard(button, text) {
+            navigator.clipboard.writeText(text).then(function() {
+                const originalText = button.textContent;
+                button.textContent = '已复制！';
+                button.style.background = '#28a745';
+                setTimeout(function() {
+                    button.textContent = originalText;
+                    button.style.background = '#4a5568';
+                }, 2000);
+            }).catch(function(err) {
+                console.error('复制失败: ', err);
+            });
+        }
+        
+        // 添加下载分析（可选）
+        document.querySelectorAll('.download-link').forEach(link => {
+            link.addEventListener('click', function() {
+                const filename = this.getAttribute('href');
+                console.log('下载开始:', filename);
+                // 如果需要，可以在此处添加分析跟踪
+            });
+        });
+    </script>
+</body>
+</html> 

@@ -9,6 +9,7 @@ on:
       - 'LICENSE'
       - '.gitignore'
       - '*.txt'
+      - '.github/**'
     tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
@@ -18,6 +19,18 @@ on:
       - 'LICENSE'
       - '.gitignore'
       - '*.txt'
+      - '.github/**'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., v1.0.0)'
+        required: true
+        type: string
+      force_update:
+        description: 'Force update even if version already exists'
+        required: false
+        default: true
+        type: boolean
 
 env:
   GO_VERSION: '1.24'
@@ -197,13 +210,16 @@ jobs:
           
           ### Installation Options
           
-          #### Option 1: Homebrew (Recommended for macOS/Linux)
+          #### Option 1: Web Download
+          Visit our download center: **https://cli.release.amo.run**
+          
+          #### Option 2: Homebrew (macOS/Linux)
           \`\`\`bash
           brew tap amo-run/amo
           brew install amo
           \`\`\`
           
-          #### Option 2: Direct Download
+          #### Option 3: Direct Download
           1. Download the binary for your platform
           2. Verify checksum (optional): \`sha256sum -c filename.sha256\`
           3. Make executable (Unix): \`chmod +x filename\`
@@ -239,6 +255,7 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           echo "🎉 Release $VERSION created successfully!"
           echo "📦 Homebrew formula will be updated automatically"
+          echo "🌐 GitHub Pages download site will be updated automatically"
           echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/$VERSION"
           
       - name: Trigger Homebrew workflow
@@ -269,5 +286,30 @@ jobs:
               console.log('✅ Homebrew workflow triggered successfully');
             } catch (error) {
               console.log('ℹ️ Could not trigger homebrew workflow manually:', error.message);
+              console.log('The release event should trigger it automatically');
+            }
+      
+      - name: Manual trigger GitHub Pages workflow (if needed)
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const version = process.env.GITHUB_REF.replace('refs/tags/', '');
+            console.log(`Attempting to trigger GitHub Pages workflow for version: ${version}`);
+            
+            try {
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'pages.yml',
+                ref: 'main',
+                inputs: {
+                  tag: version
+                }
+              });
+              console.log('✅ GitHub Pages workflow triggered successfully');
+            } catch (error) {
+              console.log('ℹ️ Could not trigger pages workflow manually:', error.message);
               console.log('The release event should trigger it automatically');
             } 
