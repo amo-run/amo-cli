@@ -1,0 +1,39 @@
+name: Publish to Homebrew Tap (Alternative)
+
+on:
+  release:
+    types: [published, released]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  update-homebrew-tap:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease)
+    
+    steps:
+      - name: Set version variable
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION=${{ github.event.release.tag_name }}
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION=${{ github.event.inputs.version }}
+          else
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version set to: $VERSION"
+
+      - name: Update Homebrew Formula (Alternative Action)
+        uses: dawidd6/action-homebrew-bump-formula@v5
+        with:
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          tap: amo-run/homebrew-amo
+          formula: amo
+          tag: ${{ steps.version.outputs.version }}
+          force: false 

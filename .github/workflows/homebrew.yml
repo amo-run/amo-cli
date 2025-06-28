@@ -67,6 +67,7 @@ jobs:
           formula-name: amo
           homebrew-tap: amo-run/homebrew-amo
           base-branch: main
+          download-url: https://github.com/${{ github.repository }}/archive/refs/tags/${{ steps.version.outputs.version }}.tar.gz
           commit-message: |
             amo {{version}}
             
@@ -75,7 +76,6 @@ jobs:
             Updated by GitHub Actions
         env:
           COMMITTER_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
 
   # Optional job: Integration test on key platforms
   integration-test:
