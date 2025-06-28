@@ -36,4 +36,4 @@ jobs:
           tap: amo-run/homebrew-amo
           formula: amo
           tag: ${{ steps.version.outputs.version }}
-          force: false 
+          force: true 

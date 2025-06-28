@@ -68,6 +68,7 @@ jobs:
           homebrew-tap: amo-run/homebrew-amo
           base-branch: main
           download-url: https://github.com/${{ github.repository }}/archive/refs/tags/${{ steps.version.outputs.version }}.tar.gz
+          create-pullrequest: true
           commit-message: |
             amo {{version}}
             
