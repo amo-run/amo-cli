@@ -239,4 +239,35 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           echo "🎉 Release $VERSION created successfully!"
           echo "📦 Homebrew formula will be updated automatically"
-          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/$VERSION" 
+          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/$VERSION"
+          
+      - name: Trigger Homebrew workflow
+        if: success()
+        run: |
+          echo "⏳ Waiting for release event to propagate..."
+          sleep 10
+          
+      - name: Manual trigger Homebrew workflow (if needed)
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const version = process.env.GITHUB_REF.replace('refs/tags/', '');
+            console.log(`Attempting to trigger homebrew workflow for version: ${version}`);
+            
+            try {
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'homebrew.yml',
+                ref: 'main',
+                inputs: {
+                  version: version
+                }
+              });
+              console.log('✅ Homebrew workflow triggered successfully');
+            } catch (error) {
+              console.log('ℹ️ Could not trigger homebrew workflow manually:', error.message);
+              console.log('The release event should trigger it automatically');
+            } 

@@ -2,11 +2,19 @@ name: Publish to Homebrew Tap
 
 on:
   release:
-    types: [published]
+    types: [published, released]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., v1.0.0)'
+        required: true
+        type: string
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Skip prerelease versions for homebrew
+    if: github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease)
     
     steps:
       - name: Checkout source
@@ -20,7 +28,15 @@ jobs:
       - name: Set variables
         id: vars
         run: |
-          TAG=${GITHUB_REF#refs/tags/}
+          # Determine version from either workflow_dispatch input or release event
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.version }}"
+            echo "📦 Using version from workflow_dispatch: $TAG"
+          else
+            TAG=${GITHUB_REF#refs/tags/}
+            echo "📦 Using version from release event: $TAG"
+          fi
+          
           echo "version=${TAG}" >> $GITHUB_OUTPUT
           echo "version_without_v=${TAG#v}" >> $GITHUB_OUTPUT
           echo "url=https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz" >> $GITHUB_OUTPUT
