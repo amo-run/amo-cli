@@ -268,7 +268,7 @@ jobs:
         if: success()
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PAT }}
           script: |
             const version = process.env.GITHUB_REF.replace('refs/tags/', '');
             console.log(`Attempting to trigger homebrew workflow for version: ${version}`);
@@ -293,7 +293,7 @@ jobs:
         if: success()
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PAT }}
           script: |
             const version = process.env.GITHUB_REF.replace('refs/tags/', '');
             console.log(`Attempting to trigger GitHub Pages workflow for version: ${version}`);
