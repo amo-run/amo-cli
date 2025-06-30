@@ -180,58 +180,68 @@
       }
     },
     "doc-to-text": {
-      "name": "Doc-to-Text",
-      "description": "Document text extraction tool",
-      "category": "document",
+      "name": "doc-to-text",
+      "description": "Extract text from various document formats",
+      "category": "File Processing",
       "website": "https://github.com/nodewee/doc-to-text",
       "check": {
         "command": "doc-to-text",
-        "args": ["--version"],
-        "pattern": "doc-to-text ([^\\s]+)"
+        "args": [
+          "--help"
+        ],
+        "pattern": "Usage:"
       },
       "install": {
         "windows": {
           "method": "github",
           "repo": "nodewee/doc-to-text",
-          "pattern": "doc-to-text_windows_amd64.exe"
+          "pattern": "doc-to-text_windows_amd64.exe",
+          "target": "doc-to-text.exe"
         },
         "darwin": {
           "method": "github",
           "repo": "nodewee/doc-to-text",
-          "pattern": "doc-to-text_darwin_{arch}"
+          "pattern": "doc-to-text_darwin_{arch}",
+          "target": "doc-to-text"
         },
         "linux": {
           "method": "github",
           "repo": "nodewee/doc-to-text",
-          "pattern": "doc-to-text_linux_{arch}"
+          "pattern": "doc-to-text_linux_{arch}",
+          "target": "doc-to-text"
         }
       }
     },
     "llm-caller": {
-      "name": "LLM Caller",
-      "description": "Command-line LLM interaction tool",
-      "category": "ai",
+      "name": "llm-caller",
+      "description": "Call various LLM services using JSON templates",
+      "category": "AI",
       "website": "https://github.com/nodewee/llm-caller",
       "check": {
         "command": "llm-caller",
-        "args": ["--version"],
-        "pattern": "llm-caller ([^\\s]+)"
+        "args": [
+          "--help"
+        ],
+        "pattern": "Usage:"
       },
       "install": {
         "windows": {
           "method": "github",
           "repo": "nodewee/llm-caller",
-          "pattern": "llm-caller_windows_amd64.exe"
+          "pattern": "llm-caller_windows_amd64.exe",
+          "target": "llm-caller.exe"
         },
         "darwin": {
           "method": "github",
           "repo": "nodewee/llm-caller",
-          "pattern": "llm-caller_darwin_{arch}"
+          "pattern": "llm-caller_darwin_{arch}",
+          "target": "llm-caller"
         },
         "linux": {
           "method": "github",
           "repo": "nodewee/llm-caller",
-          "pattern": "llm-caller_linux_{arch}"
+          "pattern": "llm-caller_linux_{arch}",
+          "target": "llm-caller"
         }
       }
     }

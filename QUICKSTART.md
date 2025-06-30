@@ -94,7 +94,7 @@ Check and manage external tools:
 amo tool list
 
 # Install tool automatically (no timeout restriction)
-amo tool install surya_ocr
+amo tool install doc-to-text
 
 # View tool path cache
 amo tool cache info
