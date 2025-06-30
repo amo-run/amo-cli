@@ -73,6 +73,7 @@ declare namespace Amo {
     cwd?: string;
     env?: Record<string, string>;
     interactive?: boolean;
+    stdin?: string;
   }
 
   interface DownloadOptions {

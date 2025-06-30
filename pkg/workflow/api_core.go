@@ -55,6 +55,7 @@ func (e *Engine) cliCommand(name string, args []string, opts map[string]interfac
 	var workingDir string
 	var envVars []string
 	interactive := false
+	var stdin string
 
 	if opts != nil {
 		if t, ok := opts["timeout"].(int); ok {
@@ -76,6 +77,9 @@ func (e *Engine) cliCommand(name string, args []string, opts map[string]interfac
 		if inter, ok := opts["interactive"].(bool); ok {
 			interactive = inter
 		}
+		if s, ok := opts["stdin"].(string); ok {
+			stdin = s
+		}
 	}
 
 	// Get the actual command path - try direct execution first, then tool cache
@@ -95,6 +99,11 @@ func (e *Engine) cliCommand(name string, args []string, opts map[string]interfac
 	// Set environment variables
 	if len(envVars) > 0 {
 		cmd.Env = append(os.Environ(), envVars...)
+	}
+
+	// Handle stdin if provided and not in interactive mode
+	if stdin != "" && !interactive {
+		cmd.Stdin = strings.NewReader(stdin)
 	}
 
 	// Handle interactive mode
