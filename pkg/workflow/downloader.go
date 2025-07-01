@@ -27,6 +27,7 @@ var AllowedDomains = []string{
 	"gitlab.com",
 	"bitbucket.org",
 	"sourceforge.net",
+	"toolchains.mirror.toulan.fun",
 }
 
 // WorkflowDownloader handles downloading workflow scripts from allowed sources
@@ -237,7 +238,7 @@ func (wd *WorkflowDownloader) sanitizeFilename(filename string) string {
 	return filename
 }
 
-// DownloadWorkflow downloads a workflow script from the given URL
+// DownloadWorkflow downloads a workflow script from the given URL with mirror fallback
 func (wd *WorkflowDownloader) DownloadWorkflow(urlStr string, filename string) error {
 	// Validate URL
 	if err := wd.IsValidURL(urlStr); err != nil {
@@ -273,21 +274,29 @@ func (wd *WorkflowDownloader) DownloadWorkflow(urlStr string, filename string) e
 		return fmt.Errorf("failed to create workflows directory: %w", err)
 	}
 
-	// Download the file
-	resp, err := wd.client.Get(rawURL)
+	// Try original URL first, then mirror if it fails
+	content, err := wd.downloadFromURL(rawURL)
 	if err != nil {
-		return fmt.Errorf("%s: %w", rawURL, err)
-	}
-	defer resp.Body.Close()
+		fmt.Printf("⚠️  Original URL failed: %v\n", err)
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed with status %d: %s", resp.StatusCode, resp.Status)
-	}
+		// Try mirror site if original URL is from GitHub
+		parsedURL, parseErr := url.Parse(rawURL)
+		if parseErr == nil && wd.isGitHubURL(parsedURL) {
+			fmt.Printf("🔄 Trying mirror site: toolchains.mirror.toulan.fun\n")
 
-	// Read the content
-	content, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
+			mirrorURL, mirrorErr := wd.convertToMirrorURL(rawURL)
+			if mirrorErr == nil {
+				content, err = wd.downloadFromURL(mirrorURL)
+				if err != nil {
+					return fmt.Errorf("both original and mirror download failed: original=%v, mirror=%v", err, err)
+				}
+				fmt.Printf("✅ Successfully downloaded from mirror site\n")
+			} else {
+				return fmt.Errorf("original download failed and mirror URL conversion failed: original=%v, mirror=%v", err, mirrorErr)
+			}
+		} else {
+			return fmt.Errorf("download failed: %w", err)
+		}
 	}
 
 	// Validate it's a valid amo workflow
@@ -305,6 +314,79 @@ func (wd *WorkflowDownloader) DownloadWorkflow(urlStr string, filename string) e
 	}
 
 	return nil
+}
+
+// downloadFromURL downloads content from a given URL
+func (wd *WorkflowDownloader) downloadFromURL(urlStr string) ([]byte, error) {
+	resp, err := wd.client.Get(urlStr)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", urlStr, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download failed with status %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	// Read the content
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return content, nil
+}
+
+// isGitHubURL checks if the URL is from GitHub
+func (wd *WorkflowDownloader) isGitHubURL(parsedURL *url.URL) bool {
+	hostname := strings.ToLower(parsedURL.Hostname())
+	return hostname == "github.com" || hostname == "raw.githubusercontent.com" || strings.HasSuffix(hostname, ".github.com")
+}
+
+// convertToMirrorURL converts a GitHub URL to mirror site URL
+func (wd *WorkflowDownloader) convertToMirrorURL(githubURL string) (string, error) {
+	parsedURL, err := url.Parse(githubURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL: %w", err)
+	}
+
+	hostname := strings.ToLower(parsedURL.Hostname())
+	path := parsedURL.Path
+
+	// Handle raw.githubusercontent.com URLs
+	// Format: https://raw.githubusercontent.com/owner/repo/branch/path/to/file.js
+	// Convert to: https://toolchains.mirror.toulan.fun/owner/repo/latest/file.js
+	if hostname == "raw.githubusercontent.com" {
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(parts) >= 4 {
+			owner := parts[0]
+			repo := parts[1]
+			// Skip branch (parts[2]) and use "latest"
+			filename := parts[len(parts)-1] // Get the last part as filename
+
+			mirrorURL := fmt.Sprintf("https://toolchains.mirror.toulan.fun/%s/%s/latest/%s",
+				owner, repo, filename)
+			return mirrorURL, nil
+		}
+	}
+
+	// Handle github.com URLs (shouldn't happen after ConvertToRawURL, but just in case)
+	// Format: https://github.com/owner/repo/blob/branch/path/to/file.js
+	if hostname == "github.com" && strings.Contains(path, "/blob/") {
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(parts) >= 5 {
+			owner := parts[0]
+			repo := parts[1]
+			// Skip "blob" (parts[2]) and branch (parts[3])
+			filename := parts[len(parts)-1] // Get the last part as filename
+
+			mirrorURL := fmt.Sprintf("https://toolchains.mirror.toulan.fun/%s/%s/latest/%s",
+				owner, repo, filename)
+			return mirrorURL, nil
+		}
+	}
+
+	return "", fmt.Errorf("unsupported GitHub URL format: %s", githubURL)
 }
 
 // ListUserWorkflows returns a list of user-downloaded workflow files from both

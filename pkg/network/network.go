@@ -349,6 +349,7 @@ func (nc *NetworkClient) loadAllowedHosts() error {
 			"imagemagick.org",
 			"calibre-ebook.com",
 			"ghostscript.com",
+			"toolchains.mirror.toulan.fun",
 		}
 
 		content := "# Allowed hosts for network access - one domain per line\n"

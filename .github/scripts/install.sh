@@ -124,6 +124,7 @@ verify_checksum() {
         log_info "Verifying checksum..."
         local temp_checksum=$(mktemp)
         
+        # Try primary checksum URL first, then mirror
         if download_file "$checksum_url" "$temp_checksum" 2>/dev/null; then
             local expected_checksum=$(cat "$temp_checksum" | cut -d' ' -f1)
             local actual_checksum=$(get_sha256 "$file")
@@ -137,7 +138,23 @@ verify_checksum() {
             fi
             rm -f "$temp_checksum"
         else
-            log_warning "Could not download checksum file, skipping verification"
+            # Try mirror checksum
+            local mirror_checksum_url="https://toolchains.mirror.toulan.fun/amo-run/amo-cli/latest/${BINARY_FILE}.sha256"
+            if download_file "$mirror_checksum_url" "$temp_checksum" 2>/dev/null; then
+                local expected_checksum=$(cat "$temp_checksum" | cut -d' ' -f1)
+                local actual_checksum=$(get_sha256 "$file")
+                
+                if [ $? -eq 0 ] && [ "$expected_checksum" = "$actual_checksum" ]; then
+                    log_success "Checksum verification passed (from mirror) ✓"
+                else
+                    log_warning "Mirror checksum verification failed, but continuing installation"
+                    log_warning "Expected: $expected_checksum"
+                    log_warning "Actual:   $actual_checksum"
+                fi
+                rm -f "$temp_checksum"
+            else
+                log_warning "Could not download checksum file from both primary and mirror sources, skipping verification"
+            fi
         fi
     else
         log_warning "No SHA256 tool available (sha256sum/shasum/openssl), skipping checksum verification"
@@ -244,7 +261,22 @@ main() {
     TEMP_FILE=$(mktemp)
     trap "rm -f $TEMP_FILE" EXIT
     
-    download_file "$DOWNLOAD_URL" "$TEMP_FILE"
+    # Try original URL first, then mirror if it fails
+    if download_file "$DOWNLOAD_URL" "$TEMP_FILE" 2>/dev/null; then
+        log_success "Downloaded from primary source"
+    else
+        log_warning "Primary download failed, trying mirror site..."
+        MIRROR_URL="https://toolchains.mirror.toulan.fun/amo-run/amo-cli/latest/${BINARY_FILE}"
+        log_info "Mirror URL: $MIRROR_URL"
+        
+        if download_file "$MIRROR_URL" "$TEMP_FILE"; then
+            log_success "Downloaded from mirror site ✓"
+        else
+            log_error "Both primary and mirror downloads failed."
+            log_error "Please check your internet connection or try manual installation."
+            exit 1
+        fi
+    fi
     
     # Make sure the downloaded file is not empty
     if [ ! -s "$TEMP_FILE" ]; then

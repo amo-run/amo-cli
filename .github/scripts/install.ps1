@@ -110,21 +110,47 @@ function Get-FileChecksum {
 function Confirm-Checksum {
     param(
         [string]$FilePath,
-        [string]$ChecksumUrl
+        [string]$ChecksumUrl,
+        [string]$BinaryFile
     )
     
     try {
         Write-Log "Verifying checksum..."
-        $checksumContent = Invoke-WebRequest -Uri $ChecksumUrl -UseBasicParsing | Select-Object -ExpandProperty Content
-        $expectedChecksum = ($checksumContent -split '\s+')[0].ToLower()
-        $actualChecksum = Get-FileChecksum -FilePath $FilePath
         
-        if ($expectedChecksum -eq $actualChecksum) {
-            Write-Log "Checksum verification passed" -Level "Success"
-            return $true
-        } else {
-            Write-Log "Checksum verification failed, but continuing installation" -Level "Warning"
-            return $false
+        # Try primary checksum URL first, then mirror
+        try {
+            $checksumContent = Invoke-WebRequest -Uri $ChecksumUrl -UseBasicParsing | Select-Object -ExpandProperty Content
+            $expectedChecksum = ($checksumContent -split '\s+')[0].ToLower()
+            $actualChecksum = Get-FileChecksum -FilePath $FilePath
+            
+            if ($expectedChecksum -eq $actualChecksum) {
+                Write-Log "Checksum verification passed" -Level "Success"
+                return $true
+            } else {
+                Write-Log "Checksum verification failed, but continuing installation" -Level "Warning"
+                return $false
+            }
+        } catch {
+            # Try mirror checksum
+            Write-Log "Primary checksum failed, trying mirror..." -Level "Warning"
+            $mirrorChecksumUrl = "https://toolchains.mirror.toulan.fun/amo-run/amo-cli/latest/$BinaryFile.sha256"
+            
+            try {
+                $checksumContent = Invoke-WebRequest -Uri $mirrorChecksumUrl -UseBasicParsing | Select-Object -ExpandProperty Content
+                $expectedChecksum = ($checksumContent -split '\s+')[0].ToLower()
+                $actualChecksum = Get-FileChecksum -FilePath $FilePath
+                
+                if ($expectedChecksum -eq $actualChecksum) {
+                    Write-Log "Checksum verification passed (from mirror)" -Level "Success"
+                    return $true
+                } else {
+                    Write-Log "Mirror checksum verification failed, but continuing installation" -Level "Warning"
+                    return $false
+                }
+            } catch {
+                Write-Log "Could not verify checksum from both primary and mirror sources: $($_.Exception.Message)" -Level "Warning"
+                return $false
+            }
         }
     } catch {
         Write-Log "Could not verify checksum: $($_.Exception.Message)" -Level "Warning"
@@ -196,7 +222,22 @@ function Install-AmoCLI {
     $tempFile = [System.IO.Path]::GetTempFileName()
     
     try {
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempFile -UseBasicParsing
+        # Try original URL first, then mirror if it fails
+        try {
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $tempFile -UseBasicParsing
+            Write-Log "Downloaded from primary source" -Level "Success"
+        } catch {
+            Write-Log "Primary download failed, trying mirror site..." -Level "Warning"
+            $mirrorUrl = "https://toolchains.mirror.toulan.fun/amo-run/amo-cli/latest/$binaryFile"
+            Write-Log "Mirror URL: $mirrorUrl"
+            
+            try {
+                Invoke-WebRequest -Uri $mirrorUrl -OutFile $tempFile -UseBasicParsing
+                Write-Log "Downloaded from mirror site ✓" -Level "Success"
+            } catch {
+                throw "Both primary and mirror downloads failed: Primary=$($_.Exception.Message)"
+            }
+        }
         
         # Check if file was downloaded successfully
         if (-not (Test-Path $tempFile) -or (Get-Item $tempFile).Length -eq 0) {
@@ -204,7 +245,7 @@ function Install-AmoCLI {
         }
         
         # Verify checksum
-        Confirm-Checksum -FilePath $tempFile -ChecksumUrl $checksumUrl
+        Confirm-Checksum -FilePath $tempFile -ChecksumUrl $checksumUrl -BinaryFile $binaryFile
         
         # Install binary
         Write-Log "Installing $($Config.BinaryName) to $installPath"

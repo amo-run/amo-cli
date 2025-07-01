@@ -681,7 +681,7 @@ type GitHubReleaseAsset struct {
 	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
-// installViaGitHub installs a tool from GitHub releases
+// installViaGitHub installs a tool from GitHub releases with mirror fallback
 func (m *Manager) installViaGitHub(toolName string, installInfo InstallInfo) error {
 	fmt.Printf("📦 Installing %s from GitHub repository: %s\n", toolName, installInfo.Repo)
 
@@ -691,38 +691,49 @@ func (m *Manager) installViaGitHub(toolName string, installInfo InstallInfo) err
 		return fmt.Errorf("failed to create install directory: %w", err)
 	}
 
+	// Try GitHub first, then mirror if it fails
+	err := m.installFromGitHub(toolName, installInfo, installDir)
+	if err != nil {
+		fmt.Printf("⚠️  GitHub installation failed: %v\n", err)
+		fmt.Printf("🔄 Trying mirror site: toolchains.mirror.toulan.fun\n")
+
+		err = m.installFromMirror(toolName, installInfo, installDir)
+		if err != nil {
+			fmt.Printf("❌ Mirror installation also failed: %v\n", err)
+			fmt.Printf("💡 Manual installation steps:\n")
+			m.printManualInstallInstructions(toolName, installInfo)
+			return fmt.Errorf("both GitHub and mirror installation failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// installFromGitHub attempts to install from GitHub releases
+func (m *Manager) installFromGitHub(toolName string, installInfo InstallInfo, installDir string) error {
 	// Get latest release info
 	release, err := m.getLatestGitHubRelease(installInfo.Repo)
 	if err != nil {
-		fmt.Printf("❌ Failed to get GitHub release info: %v\n", err)
-		fmt.Printf("💡 Manual installation steps:\n")
-		m.printManualInstallInstructions(toolName, installInfo)
-		return fmt.Errorf("failed to get release info: %w", err)
+		return fmt.Errorf("failed to get GitHub release info: %w", err)
 	}
 
 	// Find matching asset
 	assetName := m.expandPattern(installInfo.Pattern, release.TagName)
 	asset := m.findMatchingAsset(release.Assets, assetName)
 	if asset == nil {
-		fmt.Printf("❌ No matching asset found for pattern: %s\n", assetName)
-		fmt.Printf("💡 Available assets:\n")
+		fmt.Printf("⚠️  Available GitHub assets:\n")
 		for _, a := range release.Assets {
 			fmt.Printf("   - %s\n", a.Name)
 		}
-		fmt.Printf("💡 Manual installation steps:\n")
-		m.printManualInstallInstructions(toolName, installInfo)
-		return fmt.Errorf("no matching asset found")
+		return fmt.Errorf("no matching asset found for pattern: %s", assetName)
 	}
 
-	fmt.Printf("📥 Downloading: %s (version %s)\n", asset.Name, release.TagName)
+	fmt.Printf("📥 Downloading from GitHub: %s (version %s)\n", asset.Name, release.TagName)
 
 	// Download the asset
 	tempFile, err := m.downloadFile(asset.BrowserDownloadURL)
 	if err != nil {
-		fmt.Printf("❌ Download failed: %v\n", err)
-		fmt.Printf("💡 Manual installation steps:\n")
-		m.printManualInstallInstructions(toolName, installInfo)
-		return fmt.Errorf("download failed: %w", err)
+		return fmt.Errorf("GitHub download failed: %w", err)
 	}
 	defer os.Remove(tempFile)
 
@@ -748,7 +759,64 @@ func (m *Manager) installViaGitHub(toolName string, installInfo InstallInfo) err
 		fmt.Printf("⚠️  Warning: Failed to save path cache: %v\n", err)
 	}
 
-	fmt.Printf("✅ %s installed successfully to: %s\n", toolName, targetPath)
+	fmt.Printf("✅ %s installed successfully from GitHub to: %s\n", toolName, targetPath)
+	return nil
+}
+
+// installFromMirror attempts to install from mirror site
+func (m *Manager) installFromMirror(toolName string, installInfo InstallInfo, installDir string) error {
+	// Try different version patterns if "latest" doesn't work
+	possibleVersions := []string{"latest", "v0.0.0", "0.0.0"}
+
+	var tempFile string
+	var finalAssetName string
+	var downloadErr error
+
+	for _, version := range possibleVersions {
+		testAssetName := m.expandPattern(installInfo.Pattern, version)
+		mirrorURL := fmt.Sprintf("https://toolchains.mirror.toulan.fun/%s/%s/%s",
+			installInfo.Repo, version, testAssetName)
+
+		fmt.Printf("📥 Trying mirror download: %s\n", mirrorURL)
+
+		tempFile, downloadErr = m.downloadFile(mirrorURL)
+		if downloadErr == nil {
+			finalAssetName = testAssetName
+			break
+		}
+
+		fmt.Printf("⚠️  Mirror URL failed: %v\n", downloadErr)
+	}
+
+	if downloadErr != nil {
+		return fmt.Errorf("mirror download failed for all versions: %w", downloadErr)
+	}
+
+	defer os.Remove(tempFile)
+
+	// Install the file
+	targetName := installInfo.Target
+	if targetName == "" {
+		// Use tool name as target if not specified
+		targetName = toolName
+		if runtime.GOOS == "windows" {
+			targetName += ".exe"
+		}
+	}
+
+	targetPath := filepath.Join(installDir, targetName)
+
+	if err := m.installDownloadedFile(tempFile, targetPath, finalAssetName); err != nil {
+		return fmt.Errorf("installation failed: %w", err)
+	}
+
+	// Cache the tool path
+	m.setCachedToolPath(toolName, targetPath)
+	if err := m.savePathCache(); err != nil {
+		fmt.Printf("⚠️  Warning: Failed to save path cache: %v\n", err)
+	}
+
+	fmt.Printf("✅ %s installed successfully from mirror to: %s\n", toolName, targetPath)
 	return nil
 }
 
