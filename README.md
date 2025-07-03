@@ -240,7 +240,7 @@ http.downloadFile(url, path, options)     // Download file with progress
 
 // System Commands (whitelisted only)
 cliCommand("command", ["arg1", "arg2"], {
-    timeout: 180,         // seconds (default: no timeout in workflows)
+    timeout: 3600,         // seconds (default: no timeout in workflows)
     cwd: "/path/to/dir",  // working directory
     env: {"VAR": "value"} // environment variables
 });

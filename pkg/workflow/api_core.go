@@ -51,7 +51,7 @@ func (e *Engine) cliCommand(name string, args []string, opts map[string]interfac
 	}
 
 	// Parse options
-	timeout := 180 // default timeout in seconds
+	timeout := 3600 // default timeout in seconds
 	var workingDir string
 	var envVars []string
 	interactive := false
@@ -85,8 +85,10 @@ func (e *Engine) cliCommand(name string, args []string, opts map[string]interfac
 	// Get the actual command path - try direct execution first, then tool cache
 	commandPath := e.resolveCommandPath(name)
 
-	// Create command
-	ctx, cancel := context.WithTimeout(e.context, time.Duration(timeout)*time.Second)
+	// Create command with independent timeout context
+	// Note: Use context.Background() to ensure cliCommand timeout is independent
+	// of the workflow-level timeout, allowing individual commands to have their own timeout limits
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, commandPath, args...)

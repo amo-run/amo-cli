@@ -326,7 +326,7 @@ if (result.error) {
 // 带选项的命令
 var gitResult = cliCommand("git", ["status"], {
     cwd: "/path/to/repo",
-    timeout: 30,
+    timeout: 3600,
     env: {
         "GIT_AUTHOR_NAME": "Amo Workflow"
     }
