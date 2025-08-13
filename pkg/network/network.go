@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -185,6 +186,254 @@ func (nc *NetworkClient) DownloadFile(urlStr, outputPath string, progressCallbac
 	}
 }
 
+// DownloadFileResume downloads a file with HTTP range-based resume support.
+// It writes to outputPath using a sidecar part file (outputPath + ".part").
+// When download completes, the part file is atomically renamed to outputPath.
+// A sidecar metadata file (outputPath + ".part.meta") stores ETag/Last-Modified
+// to validate resumed ranges via If-Range header.
+func (nc *NetworkClient) DownloadFileResume(urlStr, outputPath string, progressCallback func(DownloadProgress)) *HTTPResponse {
+	// Validate URL
+	if !nc.isURLAllowed(urlStr) {
+		return &HTTPResponse{Error: fmt.Sprintf("URL not in allowed hosts whitelist: %s", urlStr)}
+	}
+
+	// Ensure output directory exists
+	outputDir := filepath.Dir(outputPath)
+	if err := nc.environment.GetCrossPlatformUtils().CreateDirWithPermissions(outputDir); err != nil {
+		return &HTTPResponse{Error: fmt.Sprintf("failed to create output directory: %v", err)}
+	}
+
+	partPath := outputPath + ".part"
+	metaPath := outputPath + ".part.meta"
+
+	// Determine offset from existing part file
+	var offset int64 = 0
+	if info, err := os.Stat(partPath); err == nil {
+		offset = info.Size()
+	}
+
+	// Prepare a helper to build request (with or without range)
+	buildReq := func(withRange bool) (*http.Request, error) {
+		r, e := http.NewRequest("GET", urlStr, nil)
+		if e != nil {
+			return nil, e
+		}
+		r.Header.Set("User-Agent", "amo-cli/1.0")
+		if withRange && offset > 0 {
+			r.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+			if metaBytes, e2 := os.ReadFile(metaPath); e2 == nil && len(metaBytes) > 0 {
+				var meta map[string]string
+				if json.Unmarshal(metaBytes, &meta) == nil {
+					if etag, ok := meta["etag"]; ok && etag != "" {
+						r.Header.Set("If-Range", etag)
+					} else if lm, ok := meta["last_modified"]; ok && lm != "" {
+						r.Header.Set("If-Range", lm)
+					}
+				}
+			}
+		}
+		return r, nil
+	}
+
+	// Open part file for appending (or creating)
+	f, err := os.OpenFile(partPath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return &HTTPResponse{Error: fmt.Sprintf("failed to open part file: %v", err)}
+	}
+	// Do not defer close here; we'll close explicitly before rename
+
+	if offset > 0 {
+		if _, err := f.Seek(offset, 0); err != nil {
+			_ = f.Close()
+			return &HTTPResponse{Error: fmt.Sprintf("failed to seek part file: %v", err)}
+		}
+	}
+
+	// First attempt: try with Range if we have offset
+	req, err := buildReq(offset > 0)
+	if err != nil {
+		_ = f.Close()
+		return &HTTPResponse{Error: fmt.Sprintf("failed to create request: %v", err)}
+	}
+	resp, err := nc.client.Do(req)
+	if err != nil {
+		_ = f.Close()
+		return &HTTPResponse{Error: fmt.Sprintf("request failed: %v", err)}
+	}
+
+	// Handle 416 (Requested Range Not Satisfiable): possibly already complete
+	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable && offset > 0 {
+		// Try parse total from Content-Range: bytes */TOTAL
+		var total int64 = -1
+		if cr := resp.Header.Get("Content-Range"); cr != "" {
+			if slash := strings.LastIndex(cr, "/"); slash != -1 {
+				if t, perr := strconv.ParseInt(strings.TrimSpace(cr[slash+1:]), 10, 64); perr == nil {
+					total = t
+				}
+			}
+		}
+		// Close response; we will decide next actions
+		resp.Body.Close()
+		if total > 0 && offset >= total {
+			// We already have the full file in .part → finalize
+			_ = f.Sync()
+			_ = f.Close()
+			if _, err := os.Stat(outputPath); err == nil {
+				_ = os.Remove(outputPath)
+			}
+			if err := os.Rename(partPath, outputPath); err != nil {
+				return &HTTPResponse{Error: fmt.Sprintf("failed to finalize file: %v", err)}
+			}
+			_ = os.Remove(metaPath)
+			return &HTTPResponse{StatusCode: http.StatusOK, Body: fmt.Sprintf("Downloaded %d bytes to %s", offset, outputPath)}
+		}
+		// Else fallback to full download (server rejected range or mismatch)
+		if err := f.Truncate(0); err != nil {
+			_ = f.Close()
+			return &HTTPResponse{Error: fmt.Sprintf("failed to reset part file: %v", err)}
+		}
+		if _, err := f.Seek(0, 0); err != nil {
+			_ = f.Close()
+			return &HTTPResponse{Error: fmt.Sprintf("failed to rewind part file: %v", err)}
+		}
+		offset = 0
+		_ = os.Remove(metaPath)
+		// Reissue request without Range
+		req, err = buildReq(false)
+		if err != nil {
+			_ = f.Close()
+			return &HTTPResponse{Error: fmt.Sprintf("failed to create request: %v", err)}
+		}
+		resp, err = nc.client.Do(req)
+		if err != nil {
+			_ = f.Close()
+			return &HTTPResponse{Error: fmt.Sprintf("request failed: %v", err)}
+		}
+	}
+
+	// Check status codes (after possible 416 handling)
+	if resp.StatusCode == http.StatusOK && offset > 0 {
+		if err := f.Truncate(0); err != nil {
+			resp.Body.Close()
+			_ = f.Close()
+			return &HTTPResponse{Error: fmt.Sprintf("failed to reset part file: %v", err)}
+		}
+		if _, err := f.Seek(0, 0); err != nil {
+			resp.Body.Close()
+			_ = f.Close()
+			return &HTTPResponse{Error: fmt.Sprintf("failed to rewind part file: %v", err)}
+		}
+		offset = 0
+		_ = os.Remove(metaPath)
+	} else if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		status := resp.Status
+		resp.Body.Close()
+		_ = f.Close()
+		return &HTTPResponse{StatusCode: resp.StatusCode, Error: fmt.Sprintf("HTTP error: %s", status)}
+	}
+
+	// Save/refresh metadata for future resumes
+	etag := strings.TrimSpace(resp.Header.Get("ETag"))
+	lastModified := strings.TrimSpace(resp.Header.Get("Last-Modified"))
+	meta := map[string]string{
+		"etag":          etag,
+		"last_modified": lastModified,
+		"url":           urlStr,
+	}
+	if metaBytes, err := json.Marshal(meta); err == nil {
+		_ = os.WriteFile(metaPath, metaBytes, 0644)
+	}
+
+	// Total size calculation
+	var total int64 = -1
+	if resp.StatusCode == http.StatusPartialContent {
+		if cr := resp.Header.Get("Content-Range"); cr != "" {
+			// Format: bytes start-end/total
+			if slash := strings.LastIndex(cr, "/"); slash != -1 {
+				if t, perr := strconv.ParseInt(strings.TrimSpace(cr[slash+1:]), 10, 64); perr == nil {
+					total = t
+				}
+			}
+		}
+	}
+	if total <= 0 && resp.ContentLength > 0 {
+		total = offset + resp.ContentLength
+	} else if total > 0 {
+		// include existing bytes for progress calculations below
+		// total already represents full size
+	}
+
+	// Stream copy with progress
+	var downloaded int64 = 0
+	buf := make([]byte, 32*1024)
+	startTime := time.Now()
+	lastReport := startTime
+
+	for {
+		n, rerr := resp.Body.Read(buf)
+		if n > 0 {
+			if _, werr := f.Write(buf[:n]); werr != nil {
+				resp.Body.Close()
+				_ = f.Close()
+				return &HTTPResponse{Error: fmt.Sprintf("failed to write to part file: %v", werr)}
+			}
+			downloaded += int64(n)
+
+			if progressCallback != nil {
+				now := time.Now()
+				if now.Sub(lastReport) >= 200*time.Millisecond || (total > 0 && offset+downloaded == total) {
+					elapsed := now.Sub(startTime)
+					if elapsed <= 0 {
+						elapsed = time.Millisecond
+					}
+					speed := float64(downloaded) / elapsed.Seconds()
+					var percent int
+					if total > 0 {
+						percent = int(float64(offset+downloaded) / float64(total) * 100)
+					}
+					progressCallback(DownloadProgress{
+						Downloaded: offset + downloaded,
+						Total:      total,
+						Percentage: percent,
+						Speed:      formatBytes(int64(speed)) + "/s",
+					})
+					lastReport = now
+				}
+			}
+		}
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			resp.Body.Close()
+			_ = f.Close()
+			return &HTTPResponse{Error: fmt.Sprintf("failed to read response: %v", rerr)}
+		}
+	}
+
+	// Close response and file before rename (Windows requires closed handles)
+	resp.Body.Close()
+	_ = f.Sync()
+	if err := f.Close(); err != nil {
+		return &HTTPResponse{Error: fmt.Sprintf("failed to close part file: %v", err)}
+	}
+	// Replace existing target if needed
+	if _, err := os.Stat(outputPath); err == nil {
+		_ = os.Remove(outputPath)
+	}
+	// Done – rename part to final and remove meta
+	if err := os.Rename(partPath, outputPath); err != nil {
+		return &HTTPResponse{Error: fmt.Sprintf("failed to finalize file: %v", err)}
+	}
+	_ = os.Remove(metaPath)
+
+	return &HTTPResponse{
+		StatusCode: resp.StatusCode,
+		Headers:    nc.extractHeaders(resp.Header),
+		Body:       fmt.Sprintf("Downloaded %d bytes to %s", offset+downloaded, outputPath),
+	}
+}
+
 // GetJSON performs a GET request and parses JSON response
 func (nc *NetworkClient) GetJSON(urlStr string, headers map[string]string) map[string]interface{} {
 	response := nc.Get(urlStr, headers)
@@ -337,26 +586,27 @@ func (nc *NetworkClient) isURLAllowed(urlStr string) bool {
 func (nc *NetworkClient) loadAllowedHosts() error {
 	filePath := nc.environment.JoinPath(nc.environment.GetUserConfigDir(), "allowed_hosts.txt")
 
-	// Create file if it doesn't exist
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		defaultHosts := []string{
-			"github.com",
-			"raw.githubusercontent.com",
-			"gitlab.com",
-			"bitbucket.org",
-			"sourceforge.net",
-			"ffmpeg.org",
-			"imagemagick.org",
-			"calibre-ebook.com",
-			"ghostscript.com",
-			"toolchains.mirror.toulan.fun",
-		}
+	// Keep a single source of truth for default hosts
+	defaultHosts := []string{
+		"github.com",
+		"raw.githubusercontent.com",
+		"gitlab.com",
+		"bitbucket.org",
+		"sourceforge.net",
+		"ffmpeg.org",
+		"imagemagick.org",
+		"calibre-ebook.com",
+		"ghostscript.com",
+		"toolchains.mirror.toulan.fun",
+	}
 
-		content := "# Allowed hosts for network access - one domain per line\n"
+	// Create file if it doesn't exist (bootstrap with defaults + docs)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		content := "# Allowed hosts for network access - one domain or domain/path per line\n"
 		content += "# Domain and path matching rules:\n"
 		content += "# - \"github.com\" matches github.com itself and any subdomain like api.github.com with any path\n"
 		content += "# - \"github.com/nodewee\" matches only github.com/nodewee and any path under it (e.g., github.com/nodewee/project)\n"
-		content += "# - \"api.github.com\" matches only api.github.com and its subdomains with any path\n"
+		content += "# - \"api.github.com\" matches only api.github.com; subdomains are also matched by suffix rule\n"
 		content += "# - \"api.github.com/v3\" matches only api.github.com/v3 and paths under it\n"
 		content += "# - To restrict access to specific paths only, include the path in the entry\n"
 		content += "# Example entries:\n"
@@ -369,23 +619,59 @@ func (nc *NetworkClient) loadAllowedHosts() error {
 		}
 	}
 
-	// Read the file
+	// Read existing file
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read network whitelist: %w", err)
 	}
 
-	// Parse hosts
+	// Parse existing hosts (ignore comments/blank lines)
 	lines := strings.Split(string(content), "\n")
-	nc.allowedHosts = []string{}
-
+	existing := make([]string, 0, len(lines))
+	seen := make(map[string]bool)
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "#") {
-			nc.allowedHosts = append(nc.allowedHosts, line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if !seen[line] {
+			existing = append(existing, line)
+			seen[line] = true
 		}
 	}
 
+	// Auto-heal: ensure new defaults are present even if user's file was created earlier
+	missing := make([]string, 0)
+	for _, host := range defaultHosts {
+		if !seen[host] {
+			missing = append(missing, host)
+		}
+	}
+
+	if len(missing) > 0 {
+		// Append missing defaults without touching user's existing entries
+		builder := strings.Builder{}
+		// Ensure separation from previous content
+		if len(content) > 0 && content[len(content)-1] != '\n' {
+			builder.WriteString("\n")
+		}
+		builder.WriteString("# Auto-added default hosts to keep amo-cli up-to-date\n")
+		for _, host := range missing {
+			builder.WriteString(host)
+			builder.WriteString("\n")
+		}
+		// Try append mode first to preserve existing file content
+		if f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+			_, _ = f.WriteString(builder.String())
+			_ = f.Close()
+		} else {
+			// Fallback to full rewrite
+			_ = os.WriteFile(filePath, append(content, []byte(builder.String())...), 0644)
+		}
+		existing = append(existing, missing...)
+	}
+
+	nc.allowedHosts = existing
 	return nil
 }
 

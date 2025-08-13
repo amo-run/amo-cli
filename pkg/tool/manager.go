@@ -2,6 +2,7 @@ package tool
 
 import (
 	"archive/zip"
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"amo/pkg/env"
+	"amo/pkg/network"
 )
 
 // ToolConfig represents the configuration for all tools
@@ -1024,78 +1026,47 @@ func (m *Manager) findMatchingAsset(assets []GitHubReleaseAsset, pattern string)
 
 // downloadFile downloads a file from the given URL and returns the temporary file path
 func (m *Manager) downloadFile(url string) (string, error) {
-	resp, err := http.Get(url)
+	// Build deterministic temp path for resume
+	tempDir := m.environment.GetCrossPlatformUtils().GetTempDir()
+	base := filepath.Base(url)
+	if base == "." || base == "/" || base == "" {
+		base = "download.bin"
+	}
+	// Add a short hash suffix to avoid collisions across different URLs with same basename
+	h := sha1.Sum([]byte(url))
+	short := fmt.Sprintf("%x", h)[:10]
+	safeBase := sanitizeFilename(base)
+	tempPath := filepath.Join(tempDir, "amo-"+safeBase+"-"+short)
+
+	// Use NetworkClient with resume + progress
+	nc, err := network.NewNetworkClient()
 	if err != nil {
-		return "", fmt.Errorf("failed to download: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download failed with status %d", resp.StatusCode)
+		return "", fmt.Errorf("failed to init network client: %w", err)
 	}
 
-	// Create temporary file
-	tempFile, err := os.CreateTemp("", "amo-download-*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp file: %w", err)
-	}
-	defer tempFile.Close()
-
-	// Progress-aware copy
-	contentLength := resp.ContentLength
-	var downloaded int64
-	buffer := make([]byte, 32*1024)
-	startTime := time.Now()
-	lastReport := startTime
-
-	for {
-		n, readErr := resp.Body.Read(buffer)
-		if n > 0 {
-			if _, writeErr := tempFile.Write(buffer[:n]); writeErr != nil {
-				os.Remove(tempFile.Name())
-				return "", fmt.Errorf("failed to write file: %w", writeErr)
+	var lastPercent = -1
+	resp := nc.DownloadFileResume(url, tempPath, func(p network.DownloadProgress) {
+		// Pretty console progress
+		var totalStr string
+		if p.Total > 0 {
+			totalStr = "/" + formatBytes(p.Total)
+		}
+		if p.Total > 0 {
+			if p.Percentage != lastPercent {
+				fmt.Printf("\r⬇️  Downloading... %3d%% (%s%s) - %s", p.Percentage, formatBytes(p.Downloaded), totalStr, p.Speed)
+				lastPercent = p.Percentage
 			}
-			downloaded += int64(n)
-
-			// Throttle progress updates to avoid flooding
-			now := time.Now()
-			if now.Sub(lastReport) >= 200*time.Millisecond || (contentLength > 0 && downloaded == contentLength) {
-				elapsed := now.Sub(startTime)
-				if elapsed <= 0 {
-					elapsed = time.Millisecond
-				}
-				speed := float64(downloaded) / elapsed.Seconds()
-				if contentLength > 0 {
-					percentage := int(float64(downloaded) / float64(contentLength) * 100)
-					fmt.Printf("\r⬇️  Downloading... %3d%% (%s/%s) - %s",
-						percentage,
-						formatBytes(downloaded),
-						formatBytes(contentLength),
-						formatBytes(int64(speed))+"/s",
-					)
-				} else {
-					fmt.Printf("\r⬇️  Downloading... %s - %s",
-						formatBytes(downloaded),
-						formatBytes(int64(speed))+"/s",
-					)
-				}
-				lastReport = now
-			}
+		} else {
+			fmt.Printf("\r⬇️  Downloading... %s%s - %s", formatBytes(p.Downloaded), totalStr, p.Speed)
 		}
-
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			os.Remove(tempFile.Name())
-			return "", fmt.Errorf("failed to read response: %w", readErr)
-		}
+	})
+	if resp.Error != "" {
+		// Leave part/meta for future resume, but return error
+		fmt.Println()
+		return "", fmt.Errorf("%s", resp.Error)
 	}
-
-	// Finish progress line
 	fmt.Println()
-
-	return tempFile.Name(), nil
+	return tempPath, nil
 }
 
 // formatBytes formats bytes into human readable string
@@ -1110,6 +1081,27 @@ func formatBytes(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// sanitizeFilename removes most problematic characters for building a temp filename
+func sanitizeFilename(name string) string {
+	// Keep it simple: replace path separators and control chars
+	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_")
+	name = replacer.Replace(name)
+	// Limit length to avoid OS limits
+	if len(name) > 128 {
+		ext := filepath.Ext(name)
+		base := strings.TrimSuffix(name, ext)
+		if len(base) > 120-len(ext) {
+			base = base[:120-len(ext)]
+		}
+		name = base + ext
+	}
+	// Fallback
+	if strings.TrimSpace(name) == "" {
+		return "download.bin"
+	}
+	return name
 }
 
 // installDownloadedFile installs a downloaded file to the target path

@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"crypto/sha1"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"amo/pkg/env"
+	"amo/pkg/network"
 
 	"github.com/spf13/viper"
 )
@@ -465,21 +467,21 @@ func (wd *WorkflowDownloader) DownloadWorkflow(urlStr string, filename string) e
 		return fmt.Errorf("failed to create workflows directory: %w", err)
 	}
 
+	// Build a deterministic temp path in workflows dir for resume-safe download
+	tempName := wd.buildTempName(filename, rawURL) + ".download"
+	tempPath := wd.env.GetCrossPlatformUtils().JoinPath(workflowsDir, tempName)
+
 	// Try original URL first, then mirror if it fails
-	content, err := wd.downloadFromURL(rawURL)
-	if err != nil {
+	if err := wd.downloadToFileWithResume(rawURL, tempPath); err != nil {
 		fmt.Printf("⚠️  Original URL failed: %v\n", err)
 
-		// Try mirror site if original URL is from GitHub
 		parsedURL, parseErr := url.Parse(rawURL)
 		if parseErr == nil && wd.isGitHubURL(parsedURL) {
 			fmt.Printf("🔄 Trying mirror site: toolchains.mirror.toulan.fun\n")
-
 			mirrorURL, mirrorErr := wd.convertToMirrorURL(rawURL)
 			if mirrorErr == nil {
-				content, err = wd.downloadFromURL(mirrorURL)
-				if err != nil {
-					return fmt.Errorf("both original and mirror download failed: original=%v, mirror=%v", err, err)
+				if err2 := wd.downloadToFileWithResume(mirrorURL, tempPath); err2 != nil {
+					return fmt.Errorf("both original and mirror download failed: original=%v, mirror=%v", err, err2)
 				}
 				fmt.Printf("✅ Successfully downloaded from mirror site\n")
 			} else {
@@ -490,18 +492,24 @@ func (wd *WorkflowDownloader) DownloadWorkflow(urlStr string, filename string) e
 		}
 	}
 
-	// Validate it's a valid amo workflow
-	contentStr := string(content)
-	if !strings.HasPrefix(strings.TrimSpace(contentStr), "//!amo") {
+	// Validate header from downloaded file
+	fileBytes, readErr := os.ReadFile(tempPath)
+	if readErr != nil {
+		return fmt.Errorf("failed to read downloaded file: %w", readErr)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(string(fileBytes)), "//!amo") {
+		_ = os.Remove(tempPath)
 		return fmt.Errorf("downloaded file is not a valid amo workflow (must start with //!amo)")
 	}
 
-	// Save to workflows directory
+	// Move to final workflow path
 	workflowPath := wd.env.GetCrossPlatformUtils().JoinPath(workflowsDir, filename)
-
-	err = wd.env.GetCrossPlatformUtils().CreateFileWithPermissions(workflowPath, content, false)
-	if err != nil {
-		return fmt.Errorf("failed to save workflow file: %w", err)
+	if err := os.Rename(tempPath, workflowPath); err != nil {
+		// Fallback to copy if rename fails (e.g., cross-device)
+		if copyErr := os.WriteFile(workflowPath, fileBytes, 0644); copyErr != nil {
+			return fmt.Errorf("failed to save workflow file: %w", copyErr)
+		}
+		_ = os.Remove(tempPath)
 	}
 
 	return nil
@@ -574,6 +582,52 @@ func (wd *WorkflowDownloader) downloadFromURL(urlStr string) ([]byte, error) {
 	}
 
 	return out, nil
+}
+
+// downloadToFileWithResume downloads urlStr to outputPath using resume and progress
+func (wd *WorkflowDownloader) downloadToFileWithResume(urlStr, outputPath string) error {
+	// Use NetworkClient to leverage allowed hosts + resume
+	nc, err := network.NewNetworkClient()
+	if err != nil {
+		return fmt.Errorf("failed to init network client: %w", err)
+	}
+
+	var lastPercent = -1
+	resp := nc.DownloadFileResume(urlStr, outputPath, func(p network.DownloadProgress) {
+		// Throttled by NetworkClient; print progress line
+		if p.Total > 0 {
+			if p.Percentage != lastPercent {
+				fmt.Printf("\r⬇️  Fetching script... %3d%% (%s/%s) - %s",
+					p.Percentage,
+					formatBytes(p.Downloaded),
+					formatBytes(p.Total),
+					p.Speed,
+				)
+				lastPercent = p.Percentage
+			}
+		} else {
+			fmt.Printf("\r⬇️  Fetching script... %s - %s",
+				formatBytes(p.Downloaded),
+				p.Speed,
+			)
+		}
+	})
+	if resp.Error != "" {
+		fmt.Println()
+		return fmt.Errorf("%s", resp.Error)
+	}
+	fmt.Println()
+	return nil
+}
+
+func (wd *WorkflowDownloader) buildTempName(filename, urlStr string) string {
+	h := sha1.Sum([]byte(urlStr))
+	short := fmt.Sprintf("%x", h)[:10]
+	name := strings.TrimSuffix(filename, filepath.Ext(filename))
+	if name == "" {
+		name = "workflow"
+	}
+	return name + "-" + short
 }
 
 // isGitHubURL checks if the URL is from GitHub
