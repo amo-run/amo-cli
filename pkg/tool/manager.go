@@ -74,9 +74,10 @@ type ToolPathCache struct {
 
 // Manager handles tool management operations
 type Manager struct {
-	config      *ToolConfig
-	environment *env.Environment
-	pathCache   *ToolPathCache
+	config       *ToolConfig
+	environment  *env.Environment
+	pathCache    *ToolPathCache
+	preferMirror bool
 }
 
 // NewManager creates a new tool manager
@@ -101,6 +102,11 @@ func NewManager() (*Manager, error) {
 	}
 
 	return manager, nil
+}
+
+// SetPreferMirror sets whether to prefer mirror downloads over GitHub first
+func (m *Manager) SetPreferMirror(prefer bool) {
+	m.preferMirror = prefer
 }
 
 // LoadConfig loads tool configuration from embedded assets
@@ -691,7 +697,23 @@ func (m *Manager) installViaGitHub(toolName string, installInfo InstallInfo) err
 		return fmt.Errorf("failed to create install directory: %w", err)
 	}
 
-	// Try GitHub first, then mirror if it fails
+	// When preferMirror is enabled, try mirror first then fall back to GitHub
+	if m.preferMirror {
+		fmt.Printf("🔁 Prefer mirror is enabled, trying mirror first\n")
+		if err := m.installFromMirror(toolName, installInfo, installDir); err != nil {
+			fmt.Printf("⚠️  Mirror installation failed: %v\n", err)
+			fmt.Printf("🔄 Falling back to GitHub\n")
+			if err2 := m.installFromGitHub(toolName, installInfo, installDir); err2 != nil {
+				fmt.Printf("❌ GitHub installation also failed: %v\n", err2)
+				fmt.Printf("💡 Manual installation steps:\n")
+				m.printManualInstallInstructions(toolName, installInfo)
+				return fmt.Errorf("both mirror and GitHub installation failed: %w", err2)
+			}
+		}
+		return nil
+	}
+
+	// Default behavior: try GitHub first, then mirror
 	err := m.installFromGitHub(toolName, installInfo, installDir)
 	if err != nil {
 		fmt.Printf("⚠️  GitHub installation failed: %v\n", err)

@@ -17,6 +17,7 @@ import (
 var (
 	forceReinstall bool
 	showDetails    bool
+	preferMirror   bool
 )
 
 // NewToolCmd creates and returns the tool management command
@@ -53,6 +54,7 @@ Subcommands:
 		RunE:  runToolInstallCommand,
 	}
 	installCmd.Flags().BoolVar(&forceReinstall, "force", false, "Force reinstall even if tool is already installed")
+	installCmd.Flags().BoolVar(&preferMirror, "mirror", false, "Prefer downloading from mirror first")
 
 	// Permission subcommand
 	permissionCmd := &cobra.Command{
@@ -241,6 +243,8 @@ func runToolInstallCommand(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Apply mirror preference
+	manager.SetPreferMirror(preferMirror)
 
 	// Handle "all" case for bulk installation
 	if toolName == "all" {

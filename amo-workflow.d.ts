@@ -1,5 +1,4 @@
 // TypeScript definitions for Amo Workflow Environment
-// Version 0.1.0 - Updated to match current implementation
 
 declare namespace Amo {
   // Core result types
