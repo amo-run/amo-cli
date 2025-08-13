@@ -523,9 +523,17 @@ func (m *Manager) ensureToolsInPath() error {
 
 	hasExecutables := false
 	for _, file := range files {
-		if !file.IsDir() && (file.Mode().Perm()&0111) != 0 {
-			hasExecutables = true
-			break
+		if !file.IsDir() {
+			if runtime.GOOS == "windows" {
+				// On Windows, treat .exe files as executables
+				if strings.HasSuffix(strings.ToLower(file.Name()), ".exe") {
+					hasExecutables = true
+					break
+				}
+			} else if (file.Mode().Perm() & 0111) != 0 {
+				hasExecutables = true
+				break
+			}
 		}
 	}
 

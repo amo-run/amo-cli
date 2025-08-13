@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"amo/pkg/env"
@@ -667,7 +668,15 @@ func runToolPathInfoCommand(cmd *cobra.Command, args []string) error {
 	for _, file := range files {
 		if !file.IsDir() {
 			icon := "📄"
-			if (file.Mode().Perm() & 0111) != 0 {
+			isExecutable := false
+			if runtime.GOOS == "windows" {
+				if strings.HasSuffix(strings.ToLower(file.Name()), ".exe") {
+					isExecutable = true
+				}
+			} else if (file.Mode().Perm() & 0111) != 0 {
+				isExecutable = true
+			}
+			if isExecutable {
 				icon = "🔧"
 				executableCount++
 			}

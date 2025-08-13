@@ -245,7 +245,7 @@
   },
   "config": {
     "install_dir": {
-      "windows": "%USERPROFILE%\\.amo\\tools",
+      "windows": "$USERPROFILE\\.amo\\tools",
       "darwin": "$HOME/.amo/tools",
       "linux": "$HOME/.amo/tools"
     },
