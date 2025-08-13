@@ -640,6 +640,25 @@ func (nc *NetworkClient) loadAllowedHosts() error {
 		}
 	}
 
+	// Also merge allowed workflow download sources to honor `amo workflow source` configuration
+	// File: allowed_workflow_hosts.txt (same directory)
+	wfFilePath := nc.environment.JoinPath(nc.environment.GetUserConfigDir(), "allowed_workflow_hosts.txt")
+	if _, err := os.Stat(wfFilePath); err == nil {
+		if wfContent, rerr := os.ReadFile(wfFilePath); rerr == nil {
+			wfLines := strings.Split(string(wfContent), "\n")
+			for _, l := range wfLines {
+				l = strings.TrimSpace(l)
+				if l == "" || strings.HasPrefix(l, "#") {
+					continue
+				}
+				if !seen[l] {
+					existing = append(existing, l)
+					seen[l] = true
+				}
+			}
+		}
+	}
+
 	// Auto-heal: ensure new defaults are present even if user's file was created earlier
 	missing := make([]string, 0)
 	for _, host := range defaultHosts {
