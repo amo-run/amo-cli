@@ -829,8 +829,25 @@ func (m *Manager) installFromGitHub(toolName string, installInfo InstallInfo, in
 
 // installFromMirror attempts to install from mirror site
 func (m *Manager) installFromMirror(toolName string, installInfo InstallInfo, installDir string) error {
-	// Try different version patterns if "latest" doesn't work
-	possibleVersions := []string{"latest", "v0.0.0", "0.0.0"}
+	// Try mirror using "latest" first, then the actual latest tag (with and without "v" prefix)
+	possibleVersions := []string{"latest"}
+
+	// Attempt to resolve the real latest tag from GitHub to improve mirror hit rate
+	if release, err := m.getLatestGitHubRelease(installInfo.Repo); err == nil && release != nil {
+		tag := strings.TrimSpace(release.TagName)
+		if tag != "" && tag != "latest" {
+			// Keep the original tag (may include leading 'v')
+			possibleVersions = append(possibleVersions, tag)
+			// Also try without leading 'v' to accommodate mirrors organized without it
+			noV := strings.TrimPrefix(tag, "v")
+			if noV != tag {
+				possibleVersions = append(possibleVersions, noV)
+			}
+		}
+	} else {
+		// If GitHub can't be reached, we still attempt only "latest" on the mirror
+		fmt.Printf("ℹ️  Unable to query GitHub for latest tag; trying 'latest' on mirror only\n")
+	}
 
 	var tempFile string
 	var finalAssetName string
