@@ -1041,14 +1041,75 @@ func (m *Manager) downloadFile(url string) (string, error) {
 	}
 	defer tempFile.Close()
 
-	// Copy response body to temp file
-	_, err = io.Copy(tempFile, resp.Body)
-	if err != nil {
-		os.Remove(tempFile.Name())
-		return "", fmt.Errorf("failed to write file: %w", err)
+	// Progress-aware copy
+	contentLength := resp.ContentLength
+	var downloaded int64
+	buffer := make([]byte, 32*1024)
+	startTime := time.Now()
+	lastReport := startTime
+
+	for {
+		n, readErr := resp.Body.Read(buffer)
+		if n > 0 {
+			if _, writeErr := tempFile.Write(buffer[:n]); writeErr != nil {
+				os.Remove(tempFile.Name())
+				return "", fmt.Errorf("failed to write file: %w", writeErr)
+			}
+			downloaded += int64(n)
+
+			// Throttle progress updates to avoid flooding
+			now := time.Now()
+			if now.Sub(lastReport) >= 200*time.Millisecond || (contentLength > 0 && downloaded == contentLength) {
+				elapsed := now.Sub(startTime)
+				if elapsed <= 0 {
+					elapsed = time.Millisecond
+				}
+				speed := float64(downloaded) / elapsed.Seconds()
+				if contentLength > 0 {
+					percentage := int(float64(downloaded) / float64(contentLength) * 100)
+					fmt.Printf("\r⬇️  Downloading... %3d%% (%s/%s) - %s",
+						percentage,
+						formatBytes(downloaded),
+						formatBytes(contentLength),
+						formatBytes(int64(speed))+"/s",
+					)
+				} else {
+					fmt.Printf("\r⬇️  Downloading... %s - %s",
+						formatBytes(downloaded),
+						formatBytes(int64(speed))+"/s",
+					)
+				}
+				lastReport = now
+			}
+		}
+
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			os.Remove(tempFile.Name())
+			return "", fmt.Errorf("failed to read response: %w", readErr)
+		}
 	}
 
+	// Finish progress line
+	fmt.Println()
+
 	return tempFile.Name(), nil
+}
+
+// formatBytes formats bytes into human readable string
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 // installDownloadedFile installs a downloaded file to the target path

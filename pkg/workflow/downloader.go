@@ -519,13 +519,61 @@ func (wd *WorkflowDownloader) downloadFromURL(urlStr string) ([]byte, error) {
 		return nil, fmt.Errorf("download failed with status %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	// Read the content
-	content, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+	// Progress-aware read into memory (scripts are small; still provide feedback)
+	contentLength := resp.ContentLength
+	var downloaded int64
+	buffer := make([]byte, 32*1024)
+	startTime := time.Now()
+	lastReport := startTime
+
+	// Use a dynamic buffer for content accumulation
+	var out []byte
+	for {
+		n, readErr := resp.Body.Read(buffer)
+		if n > 0 {
+			out = append(out, buffer[:n]...)
+			downloaded += int64(n)
+
+			// Throttle progress updates
+			now := time.Now()
+			if now.Sub(lastReport) >= 200*time.Millisecond || (contentLength > 0 && downloaded == contentLength) {
+				elapsed := now.Sub(startTime)
+				if elapsed <= 0 {
+					elapsed = time.Millisecond
+				}
+				speed := float64(downloaded) / elapsed.Seconds()
+				if contentLength > 0 {
+					percentage := int(float64(downloaded) / float64(contentLength) * 100)
+					fmt.Printf("\r⬇️  Fetching script... %3d%% (%s/%s) - %s",
+						percentage,
+						formatBytes(downloaded),
+						formatBytes(contentLength),
+						formatBytes(int64(speed))+"/s",
+					)
+				} else {
+					fmt.Printf("\r⬇️  Fetching script... %s - %s",
+						formatBytes(downloaded),
+						formatBytes(int64(speed))+"/s",
+					)
+				}
+				lastReport = now
+			}
+		}
+
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to read response body: %w", readErr)
+		}
 	}
 
-	return content, nil
+	// Finish progress line
+	if downloaded > 0 {
+		fmt.Println()
+	}
+
+	return out, nil
 }
 
 // isGitHubURL checks if the URL is from GitHub
