@@ -23,6 +23,7 @@ func NewWorkflowCmd() *cobra.Command {
 	// Add subcommands
 	workflowCmd.AddCommand(NewWorkflowGetCmd())
 	workflowCmd.AddCommand(NewWorkflowListCmd())
+	workflowCmd.AddCommand(NewWorkflowSourceCmd())
 
 	return workflowCmd
 }
@@ -67,6 +68,51 @@ Examples:
 	getCmd.Flags().StringVar(&filename, "filename", "", "Custom filename for the downloaded workflow (optional)")
 
 	return getCmd
+}
+
+// NewWorkflowSourceCmd creates the workflow source subcommand group
+func NewWorkflowSourceCmd() *cobra.Command {
+	sourceCmd := &cobra.Command{
+		Use:   "source",
+		Short: "Manage workflow download sources",
+		Long:  "Configure allowed sources (domains or domain/path) for workflow downloads.",
+	}
+
+	sourceCmd.AddCommand(NewWorkflowSourceListCmd())
+	sourceCmd.AddCommand(NewWorkflowSourceAddCmd())
+	sourceCmd.AddCommand(NewWorkflowSourceRmCmd())
+
+	return sourceCmd
+}
+
+// NewWorkflowSourceListCmd lists configured workflow sources
+func NewWorkflowSourceListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List configured workflow download sources",
+		RunE:  listWorkflowSources,
+	}
+}
+
+// NewWorkflowSourceAddCmd adds a new workflow source
+func NewWorkflowSourceAddCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "add <domain>[/<path>]",
+		Short: "Add a workflow download source (domain or domain/path)",
+		Args:  cobra.ExactArgs(1),
+		RunE:  addWorkflowSource,
+	}
+}
+
+// NewWorkflowSourceRmCmd removes a workflow source
+func NewWorkflowSourceRmCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "rm <domain>[/<path>]",
+		Aliases: []string{"remove", "del", "delete"},
+		Short:   "Remove a workflow download source",
+		Args:    cobra.ExactArgs(1),
+		RunE:    removeWorkflowSource,
+	}
 }
 
 // listAllWorkflows lists both user and embedded workflows
@@ -226,5 +272,80 @@ func downloadWorkflow(url, filename string) error {
 	fmt.Printf("✅ Workflow downloaded successfully to: %s\n", workflowPath)
 	fmt.Printf("Run with: amo run %s\n", actualFilename)
 
+	return nil
+}
+
+// listWorkflowSources lists current workflow download sources
+func listWorkflowSources(cmd *cobra.Command, args []string) error {
+	downloader, err := workflow.NewWorkflowDownloader()
+	if err != nil {
+		return fmt.Errorf("failed to initialize workflow downloader: %w", err)
+	}
+
+	// Ensure file exists; if not, create with defaults
+	if err := downloader.EnsureAllowedSourcesFile(); err != nil {
+		return fmt.Errorf("failed to ensure sources file: %w", err)
+	}
+
+	sources, err := downloader.ListAllowedSources()
+	if err != nil {
+		return fmt.Errorf("failed to list workflow sources: %w", err)
+	}
+
+	fmt.Println("📋 Allowed workflow download sources:")
+	fmt.Println("====================================")
+	for _, s := range sources {
+		fmt.Printf("- %s\n", s)
+	}
+	fmt.Println()
+	fmt.Printf("Config file: %s\n", downloader.GetAllowedSourcesFilePath())
+	return nil
+}
+
+// addWorkflowSource adds a source entry
+func addWorkflowSource(cmd *cobra.Command, args []string) error {
+	entry := strings.TrimSpace(args[0])
+	if entry == "" {
+		return fmt.Errorf("source cannot be empty")
+	}
+
+	downloader, err := workflow.NewWorkflowDownloader()
+	if err != nil {
+		return fmt.Errorf("failed to initialize workflow downloader: %w", err)
+	}
+
+	created, err := downloader.AddAllowedSource(entry)
+	if err != nil {
+		return fmt.Errorf("failed to add source: %w", err)
+	}
+	if created {
+		fmt.Printf("✅ Added source: %s\n", entry)
+	} else {
+		fmt.Printf("ℹ️  Source already exists: %s\n", entry)
+	}
+	return nil
+}
+
+// removeWorkflowSource removes a source entry
+func removeWorkflowSource(cmd *cobra.Command, args []string) error {
+	entry := strings.TrimSpace(args[0])
+	if entry == "" {
+		return fmt.Errorf("source cannot be empty")
+	}
+
+	downloader, err := workflow.NewWorkflowDownloader()
+	if err != nil {
+		return fmt.Errorf("failed to initialize workflow downloader: %w", err)
+	}
+
+	removed, err := downloader.RemoveAllowedSource(entry)
+	if err != nil {
+		return fmt.Errorf("failed to remove source: %w", err)
+	}
+	if removed {
+		fmt.Printf("✅ Removed source: %s\n", entry)
+	} else {
+		fmt.Printf("ℹ️  Source not found: %s\n", entry)
+	}
 	return nil
 }

@@ -21,7 +21,8 @@ import (
 // Uses domain suffix matching pattern:
 // - "github.com" matches github.com itself and any subdomain like api.github.com
 // - "raw.githubusercontent.com" matches itself and subdomains like cdn.raw.githubusercontent.com
-var AllowedDomains = []string{
+// DefaultAllowedDomains holds the built-in default sources
+var DefaultAllowedDomains = []string{
 	"github.com",
 	"raw.githubusercontent.com",
 	"gitlab.com",
@@ -29,6 +30,12 @@ var AllowedDomains = []string{
 	"sourceforge.net",
 	"toolchains.mirror.toulan.fun",
 }
+
+// AllowedDomains is the active in-memory allowlist. Tests may override this.
+var AllowedDomains = append([]string(nil), DefaultAllowedDomains...)
+
+// AllowedSourcesFileName is the filename that stores user-configured workflow download sources
+const AllowedSourcesFileName = "allowed_workflow_hosts.txt"
 
 // WorkflowDownloader handles downloading workflow scripts from allowed sources
 type WorkflowDownloader struct {
@@ -62,6 +69,162 @@ func (wd *WorkflowDownloader) GetWorkflowsDir() string {
 func (wd *WorkflowDownloader) EnsureWorkflowsDir() error {
 	workflowsDir := wd.GetWorkflowsDir()
 	return wd.env.GetCrossPlatformUtils().CreateDirWithPermissions(workflowsDir)
+}
+
+// GetAllowedSourcesFilePath returns the path to the allowed workflow sources file
+func (wd *WorkflowDownloader) GetAllowedSourcesFilePath() string {
+	return wd.env.GetCrossPlatformUtils().JoinPath(wd.env.GetUserConfigDir(), AllowedSourcesFileName)
+}
+
+// EnsureAllowedSourcesFile ensures the allowed sources file exists with defaults
+func (wd *WorkflowDownloader) EnsureAllowedSourcesFile() error {
+	filePath := wd.GetAllowedSourcesFilePath()
+
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// Create with defaults and helpful comments
+		builder := &strings.Builder{}
+		builder.WriteString("# Allowed workflow download sources - one domain or domain/path per line\n")
+		builder.WriteString("# Matching rules:\n")
+		builder.WriteString("# - 'github.com' allows github.com itself and any subdomain like api.github.com\n")
+		builder.WriteString("# - 'raw.githubusercontent.com' allows itself and subdomains\n")
+		builder.WriteString("# - 'github.com/owner' restricts to that owner only (and any subdomains)\n")
+		builder.WriteString("# - 'api.github.com/v3' restricts to that path and below\n")
+		builder.WriteString("# Lines starting with '#' are comments and ignored\n\n")
+
+		for _, host := range DefaultAllowedDomains {
+			builder.WriteString(host)
+			builder.WriteString("\n")
+		}
+
+		return wd.env.GetCrossPlatformUtils().CreateFileWithPermissions(filePath, []byte(builder.String()), false)
+	}
+
+	return nil
+}
+
+// LoadAllowedSources loads allowed sources from file. If the file does not exist,
+// it returns an error so callers may decide fallback behavior.
+func (wd *WorkflowDownloader) LoadAllowedSources() ([]string, error) {
+	filePath := wd.GetAllowedSourcesFilePath()
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	var entries []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		entries = append(entries, trimmed)
+	}
+	return entries, nil
+}
+
+// SaveAllowedSources writes the provided entries to the allowed sources file
+func (wd *WorkflowDownloader) SaveAllowedSources(entries []string) error {
+	filePath := wd.GetAllowedSourcesFilePath()
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Build file content with header
+	builder := &strings.Builder{}
+	builder.WriteString("# Allowed workflow download sources - one domain or domain/path per line\n")
+	builder.WriteString("# See comments above for matching rules.\n\n")
+
+	// De-duplicate while preserving order
+	seen := make(map[string]struct{})
+	for _, e := range entries {
+		e = strings.TrimSpace(e)
+		if e == "" || strings.HasPrefix(e, "#") {
+			continue
+		}
+		if _, ok := seen[e]; ok {
+			continue
+		}
+		seen[e] = struct{}{}
+		builder.WriteString(e)
+		builder.WriteString("\n")
+	}
+
+	return wd.env.GetCrossPlatformUtils().CreateFileWithPermissions(filePath, []byte(builder.String()), false)
+}
+
+// ListAllowedSources returns the current allowed sources, creating the file with defaults if needed
+func (wd *WorkflowDownloader) ListAllowedSources() ([]string, error) {
+	if err := wd.EnsureAllowedSourcesFile(); err != nil {
+		return nil, err
+	}
+	entries, err := wd.LoadAllowedSources()
+	if err != nil {
+		return nil, err
+	}
+	// Sort for stable output
+	sort.Strings(entries)
+	return entries, nil
+}
+
+// AddAllowedSource adds a new source entry if not present
+func (wd *WorkflowDownloader) AddAllowedSource(entry string) (bool, error) {
+	if err := wd.EnsureAllowedSourcesFile(); err != nil {
+		return false, err
+	}
+	entry = strings.TrimSpace(strings.ToLower(entry))
+	if entry == "" || strings.HasPrefix(entry, "#") {
+		return false, fmt.Errorf("invalid source entry")
+	}
+
+	entries, err := wd.LoadAllowedSources()
+	if err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		if strings.EqualFold(strings.TrimSpace(e), entry) {
+			return false, nil
+		}
+	}
+	entries = append(entries, entry)
+	if err := wd.SaveAllowedSources(entries); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// RemoveAllowedSource removes a source entry if present
+func (wd *WorkflowDownloader) RemoveAllowedSource(entry string) (bool, error) {
+	if err := wd.EnsureAllowedSourcesFile(); err != nil {
+		return false, err
+	}
+	entry = strings.TrimSpace(strings.ToLower(entry))
+	if entry == "" || strings.HasPrefix(entry, "#") {
+		return false, fmt.Errorf("invalid source entry")
+	}
+
+	entries, err := wd.LoadAllowedSources()
+	if err != nil {
+		return false, err
+	}
+	var updated []string
+	removed := false
+	for _, e := range entries {
+		normalized := strings.TrimSpace(strings.ToLower(e))
+		if normalized == entry {
+			removed = true
+			continue
+		}
+		updated = append(updated, e)
+	}
+	if !removed {
+		return false, nil
+	}
+	if err := wd.SaveAllowedSources(updated); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // GetConfiguredWorkflowsDir attempts to get the configured workflows directory
@@ -118,10 +281,38 @@ func (wd *WorkflowDownloader) IsValidURL(urlStr string) error {
 
 	hostname := strings.ToLower(parsedURL.Hostname())
 
+	// Determine whether in-memory AllowedDomains has been overridden (e.g., by tests)
+	overridden := false
+	if len(AllowedDomains) != len(DefaultAllowedDomains) {
+		overridden = true
+	} else {
+		for i := range AllowedDomains {
+			if !strings.EqualFold(strings.TrimSpace(AllowedDomains[i]), strings.TrimSpace(DefaultAllowedDomains[i])) {
+				overridden = true
+				break
+			}
+		}
+	}
+
+	var allowedEntries []string
+	if overridden {
+		// Use the in-memory list as authoritative (e.g., during tests)
+		allowedEntries = append([]string(nil), AllowedDomains...)
+	} else {
+		// Load configured sources from file if present; otherwise use defaults
+		if entries, loadErr := wd.LoadAllowedSources(); loadErr == nil {
+			allowedEntries = entries
+		} else {
+			allowedEntries = append([]string(nil), AllowedDomains...)
+		}
+	}
+
 	// Check against allowed domains using domain and path matching pattern
 	urlPath := parsedURL.Path
 
-	for _, allowedEntry := range AllowedDomains {
+	// allowedEntries determined above; proceed to matching
+
+	for _, allowedEntry := range allowedEntries {
 		// Check if the allowed entry contains a path
 		hostPart := allowedEntry
 		pathPart := ""
