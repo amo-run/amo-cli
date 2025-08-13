@@ -15,7 +15,6 @@
       "install": {
         "windows": {
           "method": "download",
-          "url": "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip",
           "target": "ffmpeg.exe"
         },
         "darwin": {
@@ -45,7 +44,6 @@
       "install": {
         "windows": {
           "method": "download",
-          "url": "https://imagemagick.org/archive/binaries/ImageMagick-7.1.1-portable-Q16-x64.zip",
           "target": "magick.exe"
         },
         "darwin": {
@@ -104,8 +102,7 @@
       },
       "install": {
         "windows": {
-          "method": "installer",
-          "url": "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/latest/download/gs10020w64.exe"
+          "method": "installer"
         },
         "darwin": {
           "method": "homebrew",

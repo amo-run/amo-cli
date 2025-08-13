@@ -18,6 +18,7 @@ var (
 	forceReinstall bool
 	showDetails    bool
 	preferMirror   bool
+	sourceURL      string
 )
 
 // NewToolCmd creates and returns the tool management command
@@ -55,6 +56,7 @@ Subcommands:
 	}
 	installCmd.Flags().BoolVar(&forceReinstall, "force", false, "Force reinstall even if tool is already installed")
 	installCmd.Flags().BoolVar(&preferMirror, "mirror", false, "Prefer downloading from mirror first")
+	installCmd.Flags().StringVar(&sourceURL, "url", "", "Override download URL for installer or binary (advanced)")
 
 	// Permission subcommand
 	permissionCmd := &cobra.Command{
@@ -248,6 +250,9 @@ func runToolInstallCommand(cmd *cobra.Command, args []string) error {
 
 	// Handle "all" case for bulk installation
 	if toolName == "all" {
+		if sourceURL != "" {
+			return fmt.Errorf("--url cannot be used with 'all'. Provide a specific tool name.")
+		}
 		return runToolInstallAllCommand(manager)
 	}
 
@@ -272,7 +277,11 @@ func runToolInstallSingleCommand(manager *tool.Manager, toolName string) error {
 	}
 
 	// Perform installation (automatic by default)
-	err = manager.InstallTool(toolName, forceReinstall)
+	if sourceURL != "" {
+		err = manager.InstallToolWithOptions(toolName, forceReinstall, &tool.InstallOptions{URL: sourceURL})
+	} else {
+		err = manager.InstallTool(toolName, forceReinstall)
+	}
 	if err != nil {
 		return fmt.Errorf("installation failed: %w", err)
 	}

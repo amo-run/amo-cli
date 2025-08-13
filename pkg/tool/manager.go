@@ -80,6 +80,14 @@ type Manager struct {
 	preferMirror bool
 }
 
+// InstallOptions represents optional parameters to override installation behavior
+type InstallOptions struct {
+	// URL overrides the download or installer URL. When provided,
+	// the manager will install directly from this URL regardless of
+	// the method defined in assets/tools.json.
+	URL string
+}
+
 // NewManager creates a new tool manager
 func NewManager() (*Manager, error) {
 	env, err := env.NewEnvironment()
@@ -354,6 +362,11 @@ func (m *Manager) checkToolStatus(toolName string, tool Tool) ToolStatus {
 
 // InstallTool installs a specific tool
 func (m *Manager) InstallTool(toolName string, forceReinstall bool) error {
+	return m.InstallToolWithOptions(toolName, forceReinstall, nil)
+}
+
+// InstallToolWithOptions installs a specific tool with optional overrides
+func (m *Manager) InstallToolWithOptions(toolName string, forceReinstall bool, opts *InstallOptions) error {
 	if m.config == nil {
 		return fmt.Errorf("tool configuration not loaded")
 	}
@@ -383,6 +396,25 @@ func (m *Manager) InstallTool(toolName string, forceReinstall bool) error {
 	installInfo, exists := tool.Install[osName]
 	if !exists {
 		return fmt.Errorf("installation not supported for platform: %s", osName)
+	}
+
+	// If a URL override is provided, install directly from that URL
+	if opts != nil && strings.TrimSpace(opts.URL) != "" {
+		ovr := InstallInfo{URL: strings.TrimSpace(opts.URL), Target: installInfo.Target}
+		if err := m.installViaDownload(toolName, ovr); err != nil {
+			return fmt.Errorf("failed to install %s from provided URL: %w", toolName, err)
+		}
+		// Clear cache and verify like normal flow below
+		m.clearCachedToolPath(toolName)
+		status := m.checkToolStatus(toolName, tool)
+		if status.Installed {
+			fmt.Printf("✅ Successfully installed %s (version: %s)\n", tool.Name, status.Version)
+			if err := m.ensureToolsInPath(); err != nil {
+				fmt.Printf("⚠️  Warning: Failed to configure PATH: %v\n", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("installation verification failed for %s: %s", toolName, status.Error)
 	}
 
 	// Install based on method
@@ -844,6 +876,9 @@ func (m *Manager) installFromMirror(toolName string, installInfo InstallInfo, in
 
 // installViaDownload installs a tool via direct download
 func (m *Manager) installViaDownload(toolName string, installInfo InstallInfo) error {
+	if strings.TrimSpace(installInfo.URL) == "" {
+		return fmt.Errorf("no download URL specified. Provide --url to specify the installer or binary source")
+	}
 	fmt.Printf("📦 Installing %s via download from: %s\n", toolName, installInfo.URL)
 
 	// Get install directory
@@ -890,6 +925,9 @@ func (m *Manager) installViaDownload(toolName string, installInfo InstallInfo) e
 
 // installViaInstaller handles installer downloads
 func (m *Manager) installViaInstaller(installInfo InstallInfo) error {
+	if strings.TrimSpace(installInfo.URL) == "" {
+		return fmt.Errorf("no installer URL specified. Provide --url to open a specific installer page")
+	}
 	fmt.Printf("📦 Opening installer download page: %s\n", installInfo.URL)
 	fmt.Printf("💡 Please download and run the installer manually\n")
 	fmt.Printf("   After installation, the tool should be available in your PATH\n")
