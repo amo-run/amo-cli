@@ -55,7 +55,7 @@ When developing Amo workflows, please pay attention to the following restriction
 
 The Amo workflow engine provides the following core APIs:
 
-- **`fs`**: File system operations (read/write files, directory operations, path handling, etc.)
+- **`fs`**: File system operations (read/write files, directory operations, path handling, hashing, etc.)
 - **`http`**: Network requests (GET, POST, file downloads, etc.)
 - **`encoding`**: Encoding/decoding operations (base64, etc.)
 - **`console`**: Console output (logging)
@@ -146,6 +146,27 @@ var testPath = "/home/user/file.txt";
 fs.dirname(testPath); // Should show auto-completion
 fs.basename(testPath);
 fs.ext(testPath);
+
+var pathParts = fs.split(testPath);
+console.log("Split - dir:", pathParts.dir, "file:", pathParts.file);
+
+// Join paths cross-platform
+var filePath = fs.join(["folder", "subfolder", "file.txt"]);
+console.log("Joined path:", filePath);
+
+// Get current working directory
+var cwd = fs.getCurrentWorkingPath();
+if (cwd.success) {
+    console.log("Current working directory:", cwd.path);
+}
+
+// Create a temporary file
+var tempFile = fs.getTempFilePath("prefix-");
+if (tempFile.success) {
+    console.log("Temporary file created at:", tempFile.path);
+    fs.write(tempFile.path, "temporary content");
+    fs.remove(tempFile.path); // Clean up
+}
 ```
 
 ## WebStorm/IntelliJ IDEA Setup (Optional)
@@ -216,6 +237,20 @@ console.log("Split - dir:", pathParts.dir, "file:", pathParts.file);
 // Join paths cross-platform
 var filePath = fs.join(["folder", "subfolder", "file.txt"]);
 console.log("Joined path:", filePath);
+
+// Get current working directory
+var cwd = fs.getCurrentWorkingPath();
+if (cwd.success) {
+    console.log("Current working directory:", cwd.path);
+}
+
+// Create a temporary file
+var tempFile = fs.getTempFilePath("prefix-");
+if (tempFile.success) {
+    console.log("Temporary file created at:", tempFile.path);
+    fs.write(tempFile.path, "temporary content");
+    fs.remove(tempFile.path); // Clean up
+}
 ```
 
 ### Network Request Examples
@@ -337,6 +372,35 @@ var gitResult = cliCommand("git", ["status"], {
 var interactiveResult = cliCommand("nano", ["file.txt"], {
     interactive: true
 });
+```
+
+### Hash Calculation Examples
+
+```javascript
+//!amo
+
+// Create a test file
+var testFile = "./test-for-hash.txt";
+fs.write(testFile, "hello amo workflow");
+
+// Calculate MD5 hash of the file
+var md5Result = fs.md5(testFile);
+if (md5Result.success) {
+    console.log("MD5 Hash:", md5Result.hash);
+} else {
+    console.error("MD5 calculation failed:", md5Result.error);
+}
+
+// Calculate SHA256 hash of the file
+var sha256Result = fs.sha256(testFile);
+if (sha256Result.success) {
+    console.log("SHA256 Hash:", sha256Result.hash);
+} else {
+    console.error("SHA256 calculation failed:", sha256Result.error);
+}
+
+// Clean up the test file
+fs.remove(testFile);
 ```
 
 ## Examples and Best Practices

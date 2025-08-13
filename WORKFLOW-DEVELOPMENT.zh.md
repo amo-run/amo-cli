@@ -54,7 +54,7 @@ Amo 工作流是一个强大的自动化解决方案，让您可以创建自定�
 
 Amo 工作流引擎提供以下核心 API：
 
-- **`fs`**：文件系统操作（读写文件、目录操作、路径处理等）
+- **`fs`**：文件系统操作（读写文件、目录操作、路径处理、哈希计算等）
 - **`http`**：网络请求（GET、POST、文件下载等）
 - **`encoding`**：编码/解码操作（base64 等）
 - **`console`**：控制台输出（日志记录）
@@ -215,6 +215,49 @@ console.log("分割 - 目录:", pathParts.dir, "文件:", pathParts.file);
 // 跨平台路径拼接
 var filePath = fs.join(["folder", "subfolder", "file.txt"]);
 console.log("拼接路径:", filePath);
+
+// 获取当前工作目录
+var cwd = fs.getCurrentWorkingPath();
+if (cwd.success) {
+    console.log("当前工作目录:", cwd.path);
+}
+
+// 创建一个临时文件
+var tempFile = fs.getTempFilePath("prefix-");
+if (tempFile.success) {
+    console.log("临时文件创建于:", tempFile.path);
+    fs.write(tempFile.path, "临时内容");
+    fs.remove(tempFile.path); // 清理
+}
+```
+
+### 哈希计算示例
+
+```javascript
+//!amo
+
+// 创建一个测试文件
+var testFile = "./test-for-hash.txt";
+fs.write(testFile, "hello amo workflow");
+
+// 计算文件的 MD5 哈希
+var md5Result = fs.md5(testFile);
+if (md5Result.success) {
+    console.log("MD5 哈希:", md5Result.hash);
+} else {
+    console.error("MD5 计算失败:", md5Result.error);
+}
+
+// 计算文件的 SHA256 哈希
+var sha256Result = fs.sha256(testFile);
+if (sha256Result.success) {
+    console.log("SHA256 哈希:", sha256Result.hash);
+} else {
+    console.error("SHA256 计算失败:", sha256Result.error);
+}
+
+// 清理测试文件
+fs.remove(testFile);
 ```
 
 ### 网络请求示例
