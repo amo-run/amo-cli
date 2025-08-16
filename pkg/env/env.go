@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -472,8 +473,16 @@ func (e *Environment) EnsureToolsDirInPath(toolsDir string) error {
 		return nil // Don't treat this as a fatal error
 	}
 
-	fmt.Printf("✅ Successfully added %s to system PATH\n", toolsDir)
-	fmt.Println("💡 Please restart your terminal or run 'source ~/.zshrc' (or appropriate shell config) to apply changes")
+	label := "system PATH"
+	if runtime.GOOS == "windows" {
+		label = "user PATH"
+	}
+	fmt.Printf("✅ Successfully added %s to %s\n", toolsDir, label)
+	if runtime.GOOS == "windows" {
+		fmt.Println("💡 Please restart your terminal (or sign out/in) to apply changes")
+	} else {
+		fmt.Println("💡 Please restart your terminal or run 'source ~/.zshrc' (or appropriate shell config) to apply changes")
+	}
 
 	return nil
 }
@@ -541,9 +550,33 @@ func (e *Environment) addToUnixPath(toolsDir string) error {
 
 // addToWindowsPath adds the tools directory to PATH on Windows
 func (e *Environment) addToWindowsPath(toolsDir string) error {
-	// On Windows, we'll provide manual instructions since modifying registry
-	// requires elevated permissions and is more complex
-	return fmt.Errorf("automatic PATH modification on Windows requires manual setup")
+	// Attempt to add to USER-level PATH so admin privileges are not required
+	// 1) Try PowerShell API ([Environment]::SetEnvironmentVariable)
+	psPath, psErr := exec.LookPath("powershell")
+	if psErr == nil {
+		// Escape single quotes for PowerShell single-quoted string
+		escaped := strings.ReplaceAll(toolsDir, "'", "''")
+		script := "$tools='" + escaped + "';" +
+			"$current=[Environment]::GetEnvironmentVariable('PATH','User');" +
+			"if([string]::IsNullOrEmpty($current)){ $current='' }" +
+			";$parts=@(); if($current -ne ''){ $parts = $current.Split(';') | Where-Object { $_ -ne '' } }" +
+			";if($parts -contains $tools){ exit 0 }" +
+			";$sep = ($current -ne '' -and -not $current.TrimEnd().EndsWith(';')) ? ';' : '';" +
+			"$new = $current + $sep + $tools;" +
+			"[Environment]::SetEnvironmentVariable('PATH',$new,'User')"
+		cmd := exec.Command(psPath, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+		if err := cmd.Run(); err == nil {
+			return nil
+		}
+	}
+
+	// 2) Fallback to setx (User PATH). Use cmd to expand %PATH%
+	cmd := exec.Command("cmd", "/c", "setx", "PATH", fmt.Sprintf("\"%%PATH%%;%s\"", toolsDir))
+	if err := cmd.Run(); err == nil {
+		return nil
+	}
+
+	return fmt.Errorf("failed to modify user PATH automatically on Windows")
 }
 
 // getCurrentShell determines the current shell
@@ -727,6 +760,8 @@ func (e *Environment) printWindowsInstructions(toolsDir string) {
 	fmt.Printf("\nAlternatively, using PowerShell (as Administrator):\n")
 	fmt.Printf("   $env:PATH += \";%s\"\n", toolsDir)
 	fmt.Printf("   [Environment]::SetEnvironmentVariable(\"PATH\", $env:PATH, \"User\")\n")
+	fmt.Printf("\nAs a last resort, you can run tools via their full path, e.g.:\n")
+	fmt.Printf("   \"%s\\<tool>.exe\" --help\n", toolsDir)
 }
 
 // printGenericUnixInstructions provides generic Unix instructions

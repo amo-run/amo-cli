@@ -717,6 +717,47 @@ func runToolPathSetupCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to setup PATH: %w", err)
 	}
 
+	// Post-check status and guidance
+	envObj, err := env.NewEnvironment()
+	if err == nil {
+		pathEnv := envObj.GetCrossPlatformUtils().GetEnvironmentVariable("PATH")
+		pathSeparator := envObj.GetCrossPlatformUtils().GetPathListSeparator()
+		absToolsDir, _ := filepath.Abs(toolsDir)
+		inPath := false
+		for _, p := range strings.Split(pathEnv, pathSeparator) {
+			if absP, err := filepath.Abs(p); err == nil && absP == absToolsDir {
+				inPath = true
+				break
+			}
+		}
+		if !inPath {
+			// Not visible in current session
+			fmt.Println()
+			fmt.Println("ℹ️  Tools directory may not be visible in the current terminal session.")
+			if runtime.GOOS == "windows" {
+				fmt.Println("💡 On Windows, PATH changes apply to new Command Prompt/PowerShell windows.")
+				fmt.Println("   Please close and reopen your terminal.")
+				fmt.Println()
+				fmt.Println("Manual Setup Instructions:")
+				fmt.Println("===========================")
+				fmt.Println("1. Open Settings → System → About → Advanced system settings")
+				fmt.Println("2. Click 'Environment Variables...'")
+				fmt.Println("3. Under 'User variables', select 'Path' → 'Edit...'")
+				fmt.Printf("4. Click 'New' and add: %s\n", toolsDir)
+				fmt.Println("5. Click 'OK' to save, then restart your terminal")
+				fmt.Println()
+				fmt.Println("Alternatively (PowerShell):")
+				fmt.Printf("   $env:PATH += ';%s'\n", toolsDir)
+				fmt.Println("   [Environment]::SetEnvironmentVariable('PATH', $env:PATH, 'User')")
+				fmt.Println()
+				fmt.Println("Fallback: use the full path to run a tool, e.g.")
+				fmt.Printf("   \"%s\\<tool>.exe\" --help\n", toolsDir)
+			} else {
+				fmt.Println("💡 On Unix-like systems, run 'source ~/.bashrc' or 'source ~/.zshrc' or reopen the terminal.")
+			}
+		}
+	}
+
 	return nil
 }
 
