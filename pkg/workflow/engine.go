@@ -277,4 +277,5 @@ func (e *Engine) registerAPIs() {
 	e.registerFileSystemAPI()
 	e.registerNetworkAPI()
 	e.registerEncodingAPI()
+	e.registerClipboardAPI()
 }

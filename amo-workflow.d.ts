@@ -86,6 +86,11 @@ declare namespace Amo {
     percentage: number;
     speed: string;
   }
+
+  // Clipboard results
+  interface ClipboardReadResult extends Result {
+    text?: string;
+  }
 }
 
 // File System API
@@ -180,3 +185,11 @@ declare function cliCommand(
   args?: string[], 
   options?: Amo.CommandOptions
 ): Amo.CommandResult; 
+
+// Clipboard API
+declare const clipboard: {
+  // Read plain text from system clipboard
+  read(): Amo.ClipboardReadResult;
+  // Write plain text to system clipboard
+  write(text: string): Amo.Result;
+};
