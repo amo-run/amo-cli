@@ -21,10 +21,11 @@ func (e *Engine) registerNetworkAPI() {
 
 	// Network available, register actual functions
 	e.vm.Set("http", map[string]interface{}{
-		"get":          e.httpGet,
-		"post":         e.httpPost,
-		"getJSON":      e.httpGetJSON,
-		"downloadFile": e.httpDownloadFile,
+		"get":             e.httpGet,
+		"post":            e.httpPost,
+		"getJSON":         e.httpGetJSON,
+		"downloadFile":    e.httpDownloadFile,
+		"downloadFileResume": e.httpDownloadFileResume,
 	})
 }
 
@@ -105,6 +106,47 @@ func (e *Engine) httpDownloadFile(url string, outputPath string, options map[str
 	}
 
 	response := e.network.DownloadFile(url, outputPath, progressCallback)
+
+	if showProgress && response.Error == "" {
+		fmt.Println() // New line after progress
+	}
+
+	return map[string]interface{}{
+		"status_code": response.StatusCode,
+		"headers":     response.Headers,
+		"body":        response.Body,
+		"error":       response.Error,
+	}
+}
+
+func (e *Engine) httpDownloadFileResume(url string, outputPath string, options map[string]interface{}) map[string]interface{} {
+	if e.network == nil {
+		return map[string]interface{}{
+			"error": "Network client not available",
+		}
+	}
+
+	// Parse options
+	showProgress := false
+	if options != nil {
+		if val, ok := options["show_progress"].(bool); ok {
+			showProgress = val
+		}
+	}
+
+	// Progress callback
+	var progressCallback func(network.DownloadProgress)
+	if showProgress {
+		progressCallback = func(progress network.DownloadProgress) {
+			fmt.Printf("\rDownloading... %d%% (%s/%s) - %s",
+				progress.Percentage,
+				formatBytes(progress.Downloaded),
+				formatBytes(progress.Total),
+				progress.Speed)
+		}
+	}
+
+	response := e.network.DownloadFileResume(url, outputPath, progressCallback)
 
 	if showProgress && response.Error == "" {
 		fmt.Println() // New line after progress

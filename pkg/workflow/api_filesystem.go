@@ -1,6 +1,14 @@
 package workflow
 
-import "amo/pkg/filesystem"
+import (
+	"archive/zip"
+	"fmt"
+	"io"
+	"path/filepath"
+	"strings"
+
+	"amo/pkg/filesystem"
+)
 
 // registerFileSystemAPI registers all file system related functions
 func (e *Engine) registerFileSystemAPI() {
@@ -49,6 +57,9 @@ func (e *Engine) registerFileSystemAPI() {
 		"size":   e.getFileSize,
 		"find":   e.findFiles,
 		"search": e.findFiles, // alias
+
+		// Archive operations
+		"extractZip": e.extractZip,
 
 		// Remove: cwd, getcwd, chdir, cd
 		// "cwd":    e.getWorkingDir,
@@ -325,4 +336,80 @@ func (e *Engine) generateUniqueFilename(path string, maxAttemptsInput interface{
 		"success": true,
 		"path":    uniquePath,
 	}
+}
+
+// extractZip extracts a ZIP file to a target directory
+func (e *Engine) extractZip(zipPath string, targetDir string) map[string]interface{} {
+	// Validate inputs
+	if !e.filesystem.Exists(zipPath) {
+		return e.createResult(false, nil, fmt.Errorf("ZIP file not found: %s", zipPath))
+	}
+
+	if !e.filesystem.IsFile(zipPath) {
+		return e.createResult(false, nil, fmt.Errorf("path is not a file: %s", zipPath))
+	}
+
+	// Ensure target directory exists
+	if err := e.filesystem.MakeDir(targetDir); err != nil {
+		return e.createResult(false, nil, fmt.Errorf("failed to create target directory: %w", err))
+	}
+
+	// Open ZIP file
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return e.createResult(false, nil, fmt.Errorf("failed to open ZIP file: %w", err))
+	}
+	defer reader.Close()
+
+	extractedFiles := []string{}
+
+	// Extract each file
+	for _, file := range reader.File {
+		if err := e.extractZipFile(file, targetDir); err != nil {
+			return e.createResult(false, nil, fmt.Errorf("failed to extract %s: %w", file.Name, err))
+		}
+		extractedFiles = append(extractedFiles, file.Name)
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"files":   extractedFiles,
+		"count":   len(extractedFiles),
+	}
+}
+
+// extractZipFile extracts a single file from a ZIP archive
+func (e *Engine) extractZipFile(file *zip.File, targetDir string) error {
+	// Validate file path to prevent directory traversal
+	cleanPath := filepath.Clean(file.Name)
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("invalid file path: %s", file.Name)
+	}
+
+	targetPath := filepath.Join(targetDir, cleanPath)
+
+	// Create directory if needed
+	if file.FileInfo().IsDir() {
+		return e.filesystem.MakeDir(targetPath)
+	}
+
+	// Ensure parent directory exists
+	parentDir := filepath.Dir(targetPath)
+	if err := e.filesystem.MakeDir(parentDir); err != nil {
+		return err
+	}
+
+	// Extract file content
+	reader, err := file.Open()
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return err
+	}
+
+	return e.filesystem.WriteFile(targetPath, string(content))
 }

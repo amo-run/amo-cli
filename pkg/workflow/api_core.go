@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"amo/pkg/env"
-	"amo/pkg/tool"
 )
 
 // Core API functions (getVar, cliCommand, console)
@@ -173,28 +172,23 @@ func (e *Engine) resolveCommandPath(commandName string) string {
 	return commandName
 }
 
+// ToolPathProvider interface for getting cached tool paths without importing tool package
+type ToolPathProvider interface {
+	GetCachedToolPath(commandName string) (string, bool)
+}
+
+// SetToolPathProvider sets the tool path provider for the engine
+func (e *Engine) SetToolPathProvider(provider ToolPathProvider) {
+	e.toolPathProvider = provider
+}
+
 // getToolPathFromCache attempts to get tool path from the tool cache
 func (e *Engine) getToolPathFromCache(commandName string) string {
-	// Create tool manager to access path cache
-	manager, err := tool.NewManager()
-	if err != nil {
-		return ""
-	}
-
-	// Load tool configuration if needed (for cache access)
-	// Note: We don't need full config for cache lookup, but manager requires it
-	// Try to load from asset manager if available
-	if e.assetReader != nil {
-		if configStr, err := e.assetReader.ReadFileAsString("tools.json"); err == nil {
-			manager.LoadConfig([]byte(configStr))
+	if e.toolPathProvider != nil {
+		if cachedPath, exists := e.toolPathProvider.GetCachedToolPath(commandName); exists {
+			return cachedPath
 		}
 	}
-
-	// Try to get cached path
-	if cachedPath, exists := manager.GetCachedToolPath(commandName); exists {
-		return cachedPath
-	}
-
 	return ""
 }
 

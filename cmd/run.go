@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-
-	// "strings"
+	"strings"
 	"time"
 
 	"amo/pkg/cli"
+	"amo/pkg/tool"
 	"amo/pkg/workflow"
 
 	"github.com/spf13/cobra"
@@ -92,16 +92,22 @@ func runWorkflowCommand(cmd *cobra.Command, args []string) error {
 		vars["output"] = output
 	}
 
-	// // Add environment variables to vars map
-	// for _, envVar := range os.Environ() {
-	// 	parts := strings.SplitN(envVar, "=", 2)
-	// 	if len(parts) == 2 && !strings.HasPrefix(parts[0], "_") {
-	// 		// Only if not explicitly set by user
-	// 		if _, exists := vars[parts[0]]; !exists {
-	// 			vars[parts[0]] = parts[1]
-	// 		}
-	// 	}
-	// }
+	// Add environment variables to vars map
+	if debug {
+		fmt.Fprintf(os.Stderr, "📋 Adding environment variables to vars map...\n")
+	}
+	for _, envVar := range os.Environ() {
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) == 2 && !strings.HasPrefix(parts[0], "_") {
+			// Only if not explicitly set by user
+			if _, exists := vars[parts[0]]; !exists {
+				vars[parts[0]] = parts[1]
+				if debug {
+					fmt.Fprintf(os.Stderr, "  Adding env var: %s = %s\n", parts[0], parts[1])
+				}
+			}
+		}
+	}
 
 	// Execute workflow with variables and timeout
 	return executeWorkflow(scriptPath, vars, timeout, debug)
@@ -136,6 +142,13 @@ func executeWorkflow(scriptPath string, vars map[string]string, timeout int, deb
 	// Set asset reader if available
 	if AssetManager != nil {
 		engine.SetAssetReader(AssetManager)
+	}
+
+	// Set up tool path provider for command resolution
+	toolManager, err := createToolManager()
+	if err == nil {
+		toolPathProvider := (*tool.Manager)(toolManager).NewToolPathProviderAdapter()
+		engine.SetToolPathProvider(toolPathProvider)
 	}
 
 	// Set variables in engine

@@ -1,5 +1,9 @@
 # Project Related
 amo
+amo-cli
+.cursor*
+.cursor/
+.trae/
 
 # Resource Files
 *.png
@@ -36,7 +40,6 @@ examples/*.png
 *.njsproj
 *.sln
 *.sw?
-.cursor*
 
 # Dependency & Cache
 node_modules/

@@ -23,12 +23,13 @@ type AssetReader interface {
 
 // Engine represents the workflow execution engine
 type Engine struct {
-	vm          *goja.Runtime
-	vars        map[string]string
-	context     context.Context
-	filesystem  *filesystem.FileSystem
-	assetReader AssetReader
-	network     *network.NetworkClient
+	vm               *goja.Runtime
+	vars             map[string]string
+	context          context.Context
+	filesystem       *filesystem.FileSystem
+	assetReader      AssetReader
+	network          *network.NetworkClient
+	toolPathProvider ToolPathProvider
 }
 
 // NewEngine creates a new workflow engine

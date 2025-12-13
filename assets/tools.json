@@ -39,12 +39,17 @@
       "check": {
         "command": "magick",
         "args": ["-version"],
-        "pattern": "Version: ImageMagick ([^\\s]+)"
+        "pattern": "Version: ImageMagick ([^\\s]+)",
+        "fallback_commands": ["convert", "identify", "mogrify"]
       },
       "install": {
         "windows": {
-          "method": "download",
-          "target": "magick.exe"
+          "method": "workflow",
+          "workflow": "imagemagick-windows-installer",
+          "target": "magick.exe",
+          "portable_url": "https://imagemagick.org/archive/binaries/",
+          "mirror_url": "https://toolchains.mirror.toulan.fun/software/",
+          "pattern": "ImageMagick-([0-9.]+-[0-9]+)-portable-Q16-x64.zip"
         },
         "darwin": {
           "method": "homebrew",
