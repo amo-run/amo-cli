@@ -15,7 +15,7 @@ func runToolPermissionCommand(cmd *cobra.Command, args []string) error {
 
 	environment, err := env.NewEnvironment()
 	if err != nil {
-		return fmt.Errorf("failed to create environment: %w", err)
+		return newInfraError(fmt.Errorf("failed to create environment: %w", err))
 	}
 
 	fmt.Printf("📁 Configuration file: %s\n", environment.GetAllowedCLIPath())
@@ -55,12 +55,12 @@ func runToolPermissionCommand(cmd *cobra.Command, args []string) error {
 func runToolPermissionListCommand(cmd *cobra.Command, args []string) error {
 	environment, err := env.NewEnvironment()
 	if err != nil {
-		return fmt.Errorf("failed to create environment: %w", err)
+		return newInfraError(fmt.Errorf("failed to create environment: %w", err))
 	}
 
 	commands, err := environment.LoadAllowedCLICommands()
 	if err != nil {
-		return fmt.Errorf("failed to load allowed commands: %w", err)
+		return newInfraError(fmt.Errorf("failed to load allowed commands: %w", err))
 	}
 
 	fmt.Println("📋 Allowed CLI Commands:")
@@ -85,7 +85,7 @@ func runToolPermissionAddCommand(cmd *cobra.Command, args []string) error {
 
 	environment, err := env.NewEnvironment()
 	if err != nil {
-		return fmt.Errorf("failed to create environment: %w", err)
+		return newInfraError(fmt.Errorf("failed to create environment: %w", err))
 	}
 
 	err = environment.AddAllowedCommand(command)
@@ -94,7 +94,7 @@ func runToolPermissionAddCommand(cmd *cobra.Command, args []string) error {
 			fmt.Printf("ℹ️  Command '%s' is already in the whitelist\n", command)
 			return nil
 		}
-		return fmt.Errorf("failed to add command: %w", err)
+		return newInfraError(fmt.Errorf("failed to add command: %w", err))
 	}
 
 	fmt.Printf("✅ Command '%s' added to whitelist\n", command)
@@ -108,7 +108,7 @@ func runToolPermissionRemoveCommand(cmd *cobra.Command, args []string) error {
 
 	environment, err := env.NewEnvironment()
 	if err != nil {
-		return fmt.Errorf("failed to create environment: %w", err)
+		return newInfraError(fmt.Errorf("failed to create environment: %w", err))
 	}
 
 	err = environment.RemoveAllowedCommand(command)
@@ -117,7 +117,7 @@ func runToolPermissionRemoveCommand(cmd *cobra.Command, args []string) error {
 			fmt.Printf("ℹ️  Command '%s' is not in the whitelist\n", command)
 			return nil
 		}
-		return fmt.Errorf("failed to remove command: %w", err)
+		return newInfraError(fmt.Errorf("failed to remove command: %w", err))
 	}
 
 	fmt.Printf("✅ Command '%s' removed from whitelist\n", command)

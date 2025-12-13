@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -28,6 +29,11 @@ func createToolManager() (*tool.Manager, error) {
 		return nil, fmt.Errorf("failed to load tool configuration: %w", err)
 	}
 
+	ctx := context.Background()
+	workflowEngine := tool.NewWorkflowEngineWrapper(ctx)
+	workflowEngine.SetAssetReader(AssetManager)
+	manager.SetWorkflowEngine(workflowEngine)
+
 	return manager, nil
 }
 
@@ -37,7 +43,7 @@ func runToolListCommand(cmd *cobra.Command, args []string) error {
 
 	manager, err := createToolManager()
 	if err != nil {
-		return err
+		return newInfraError(err)
 	}
 
 	fmt.Printf("📊 Configuration: %s\n", manager.GetConfigVersion())
@@ -63,7 +69,7 @@ func runToolListCommand(cmd *cobra.Command, args []string) error {
 	})
 
 	if err != nil {
-		return fmt.Errorf("failed to check tools: %w", err)
+		return newInfraError(fmt.Errorf("failed to check tools: %w", err))
 	}
 
 	fmt.Println()
@@ -85,19 +91,25 @@ func runToolInstallCommand(cmd *cobra.Command, args []string) error {
 
 	manager, err := createToolManager()
 	if err != nil {
-		return err
+		return newInfraError(err)
 	}
 
 	manager.SetPreferMirror(preferMirror)
 
 	if toolName == "all" {
 		if sourceURL != "" {
-			return fmt.Errorf("--url cannot be used with 'all'. Provide a specific tool name.")
+			return newUserError("--url cannot be used with 'all'. Provide a specific tool name.")
 		}
-		return runToolInstallAllCommand(manager)
+		if err := runToolInstallAllCommand(manager); err != nil {
+			return newInfraError(err)
+		}
+		return nil
 	}
 
-	return runToolInstallSingleCommand(manager, toolName)
+	if err := runToolInstallSingleCommand(manager, toolName); err != nil {
+		return newInfraError(err)
+	}
+	return nil
 }
 
 func runToolInstallSingleCommand(manager *tool.Manager, toolName string) error {
@@ -227,6 +239,8 @@ func runToolInstallAllCommand(manager *tool.Manager) error {
 		for _, name := range failedInstalls {
 			fmt.Printf("   amo tool install %s\n", name)
 		}
+		fmt.Printf("\n🎯 Total: %d/%d tools successfully installed\n", len(successfulInstalls), len(toolNames))
+		return fmt.Errorf("failed to install %d tool(s)", len(failedInstalls))
 	}
 
 	fmt.Printf("\n🎯 Total: %d/%d tools successfully installed\n", len(successfulInstalls), len(toolNames))

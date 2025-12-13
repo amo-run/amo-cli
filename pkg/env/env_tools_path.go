@@ -2,7 +2,6 @@ package env
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -153,7 +152,7 @@ func (e *Environment) getShellConfigFile(shell, homeDir string) string {
 }
 
 func (e *Environment) isPathInConfigFile(configFile, toolsDir string) bool {
-	content, err := ioutil.ReadFile(configFile)
+	content, err := os.ReadFile(configFile)
 	if err != nil {
 		return false
 	}
@@ -176,7 +175,7 @@ func (e *Environment) appendToConfigFile(configFile, comment, exportLine string)
 	}
 	defer file.Close()
 
-	content, err := ioutil.ReadFile(configFile)
+	content, err := os.ReadFile(configFile)
 	if err == nil && len(content) > 0 && content[len(content)-1] != '\n' {
 		if _, err := file.WriteString("\n"); err != nil {
 			return fmt.Errorf("failed to write newline: %w", err)
@@ -287,4 +286,3 @@ func (e *Environment) printGenericUnixInstructions(toolsDir string) {
 	fmt.Printf("\nThen reload your shell configuration:\n")
 	fmt.Printf("   source ~/.bashrc    # or your shell's config file\n")
 }
-

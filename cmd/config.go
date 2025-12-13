@@ -78,7 +78,7 @@ func runConfigCommand(cmd *cobra.Command, args []string) error {
 	// Create config manager
 	manager, err := config.NewManager()
 	if err != nil {
-		return fmt.Errorf("failed to initialize config manager: %w", err)
+		return newInfraError(fmt.Errorf("failed to initialize config manager: %w", err))
 	}
 
 	// No args - show help
@@ -90,7 +90,7 @@ func runConfigCommand(cmd *cobra.Command, args []string) error {
 
 	// Check if key is valid
 	if !manager.IsValidKey(key) {
-		return fmt.Errorf("invalid configuration key: %s (valid keys: %s)", key, strings.Join(manager.GetValidKeys(), ", "))
+		return newUserError("invalid configuration key: %s (valid keys: %s)", key, strings.Join(manager.GetValidKeys(), ", "))
 	}
 
 	// Case 1: config <key> - get value
@@ -107,7 +107,7 @@ func runConfigCommand(cmd *cobra.Command, args []string) error {
 	// Case 2: config <key> <value> - set value
 	value := args[1]
 	if err := manager.Set(key, value); err != nil {
-		return fmt.Errorf("failed to set configuration: %w", err)
+		return newInfraError(fmt.Errorf("failed to set configuration: %w", err))
 	}
 
 	fmt.Printf("✅ Configuration set: %s = %s\n", key, value)
@@ -118,7 +118,7 @@ func runConfigCommand(cmd *cobra.Command, args []string) error {
 func runConfigLsCmd(cmd *cobra.Command, args []string) error {
 	manager, err := config.NewManager()
 	if err != nil {
-		return fmt.Errorf("failed to initialize config manager: %w", err)
+		return newInfraError(fmt.Errorf("failed to initialize config manager: %w", err))
 	}
 
 	fmt.Printf("📋 Configuration values (stored in %s):\n\n", manager.GetConfigFile())
@@ -152,17 +152,17 @@ func runConfigLsCmd(cmd *cobra.Command, args []string) error {
 func runConfigRmCmd(cmd *cobra.Command, args []string) error {
 	manager, err := config.NewManager()
 	if err != nil {
-		return fmt.Errorf("failed to initialize config manager: %w", err)
+		return newInfraError(fmt.Errorf("failed to initialize config manager: %w", err))
 	}
 
 	key := args[0]
 
 	if !manager.IsValidKey(key) {
-		return fmt.Errorf("invalid configuration key: %s (valid keys: %s)", key, strings.Join(manager.GetValidKeys(), ", "))
+		return newUserError("invalid configuration key: %s (valid keys: %s)", key, strings.Join(manager.GetValidKeys(), ", "))
 	}
 
 	if err := manager.Unset(key); err != nil {
-		return fmt.Errorf("failed to remove configuration: %w", err)
+		return newInfraError(fmt.Errorf("failed to remove configuration: %w", err))
 	}
 
 	fmt.Printf("✅ Configuration reset: %s restored to default value\n", key)

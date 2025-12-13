@@ -4,6 +4,7 @@ amo-cli
 .cursor*
 .cursor/
 .trae/
+.agent/
 
 # Resource Files
 *.png

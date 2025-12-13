@@ -23,6 +23,9 @@ func main() {
 
 	rootCmd := cmd.NewRootCmd()
 	if err := rootCmd.Execute(); err != nil {
+		if exitErr, ok := err.(interface{ ExitCode() int }); ok {
+			os.Exit(exitErr.ExitCode())
+		}
 		os.Exit(1)
 	}
 }

@@ -57,18 +57,21 @@ Examples:
 
 func runWorkflowCommand(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("workflow filename is required")
+		return newUserError("workflow filename is required")
 	}
 
 	// Get script path
 	scriptPath := args[0]
 
 	// Help mode - just run the workflow with --help flag
-	if workflowHelp, _ := cmd.Flags().GetBool("workflow-help"); workflowHelp {
+		if workflowHelp, _ := cmd.Flags().GetBool("workflow-help"); workflowHelp {
 		vars := map[string]string{
 			"help": "true",
 		}
-		return executeWorkflow(scriptPath, vars, 0, false)
+		if err := executeWorkflow(scriptPath, vars, 0, false); err != nil {
+			return newRuntimeError(err)
+		}
+		return nil
 	}
 
 	// Parse variables
@@ -110,7 +113,10 @@ func runWorkflowCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	// Execute workflow with variables and timeout
-	return executeWorkflow(scriptPath, vars, timeout, debug)
+	if err := executeWorkflow(scriptPath, vars, timeout, debug); err != nil {
+		return newRuntimeError(err)
+	}
+	return nil
 }
 
 func executeWorkflow(scriptPath string, vars map[string]string, timeout int, debug bool) error {

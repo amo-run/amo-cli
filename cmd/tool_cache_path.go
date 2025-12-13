@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,7 +18,7 @@ func runToolCacheInfoCommand(cmd *cobra.Command, args []string) error {
 
 	manager, err := createToolManager()
 	if err != nil {
-		return err
+		return newInfraError(err)
 	}
 
 	cacheInfo := manager.GetToolPathCacheInfo()
@@ -71,7 +70,7 @@ func runToolCacheClearCommand(cmd *cobra.Command, args []string) error {
 
 	manager, err := createToolManager()
 	if err != nil {
-		return err
+		return newInfraError(err)
 	}
 
 	cacheInfo := manager.GetToolPathCacheInfo()
@@ -97,7 +96,7 @@ func runToolPathInfoCommand(cmd *cobra.Command, args []string) error {
 
 	manager, err := createToolManager()
 	if err != nil {
-		return fmt.Errorf("failed to create tool manager: %w", err)
+		return newInfraError(fmt.Errorf("failed to create tool manager: %w", err))
 	}
 
 	toolsDir := manager.GetInstallDir()
@@ -111,7 +110,7 @@ func runToolPathInfoCommand(cmd *cobra.Command, args []string) error {
 
 	envObj, err := env.NewEnvironment()
 	if err != nil {
-		return fmt.Errorf("failed to create environment: %w", err)
+		return newInfraError(fmt.Errorf("failed to create environment: %w", err))
 	}
 
 	pathEnv := envObj.GetCrossPlatformUtils().GetEnvironmentVariable("PATH")
@@ -139,7 +138,7 @@ func runToolPathInfoCommand(cmd *cobra.Command, args []string) error {
 	fmt.Println("")
 	fmt.Println("Installed tools in directory:")
 
-	files, err := ioutil.ReadDir(toolsDir)
+	files, err := os.ReadDir(toolsDir)
 	if err != nil {
 		fmt.Printf("⚠️  Cannot read tools directory: %v\n", err)
 		return nil
@@ -147,22 +146,32 @@ func runToolPathInfoCommand(cmd *cobra.Command, args []string) error {
 
 	executableCount := 0
 	for _, file := range files {
-		if !file.IsDir() {
-			icon := "📄"
-			isExecutable := false
-			if runtime.GOOS == "windows" {
-				if strings.HasSuffix(strings.ToLower(file.Name()), ".exe") {
-					isExecutable = true
-				}
-			} else if (file.Mode().Perm() & 0111) != 0 {
+		if file.IsDir() {
+			continue
+		}
+
+		info, err := file.Info()
+		if err != nil {
+			continue
+		}
+
+		icon := "📄"
+		isExecutable := false
+
+		if runtime.GOOS == "windows" {
+			if strings.HasSuffix(strings.ToLower(file.Name()), ".exe") {
 				isExecutable = true
 			}
-			if isExecutable {
-				icon = "🔧"
-				executableCount++
-			}
-			fmt.Printf("  %s %s (%s)\n", icon, file.Name(), formatFileSize(file.Size()))
+		} else if info.Mode().Perm()&0111 != 0 {
+			isExecutable = true
 		}
+
+		if isExecutable {
+			icon = "🔧"
+			executableCount++
+		}
+
+		fmt.Printf("  %s %s (%s)\n", icon, file.Name(), formatFileSize(info.Size()))
 	}
 
 	if executableCount == 0 {
@@ -180,7 +189,7 @@ func runToolPathSetupCommand(cmd *cobra.Command, args []string) error {
 
 	manager, err := createToolManager()
 	if err != nil {
-		return fmt.Errorf("failed to create tool manager: %w", err)
+		return newInfraError(fmt.Errorf("failed to create tool manager: %w", err))
 	}
 
 	toolsDir := manager.GetInstallDir()
@@ -193,7 +202,7 @@ func runToolPathSetupCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := manager.EnsureToolsInPath(); err != nil {
-		return fmt.Errorf("failed to setup PATH: %w", err)
+		return newInfraError(fmt.Errorf("failed to setup PATH: %w", err))
 	}
 
 	envObj, err := env.NewEnvironment()

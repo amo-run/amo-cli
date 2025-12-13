@@ -3,7 +3,6 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -509,24 +508,33 @@ func (m *Manager) ensureToolsInPath() error {
 	}
 
 	// Check if directory has any executable files
-	files, err := ioutil.ReadDir(toolsDir)
+	files, err := os.ReadDir(toolsDir)
 	if err != nil {
 		return nil // Can't read directory, skip PATH configuration
 	}
 
 	hasExecutables := false
 	for _, file := range files {
-		if !file.IsDir() {
-			if runtime.GOOS == "windows" {
-				// On Windows, treat .exe files as executables
-				if strings.HasSuffix(strings.ToLower(file.Name()), ".exe") {
-					hasExecutables = true
-					break
-				}
-			} else if (file.Mode().Perm() & 0111) != 0 {
+		if file.IsDir() {
+			continue
+		}
+
+		if runtime.GOOS == "windows" {
+			if strings.HasSuffix(strings.ToLower(file.Name()), ".exe") {
 				hasExecutables = true
 				break
 			}
+			continue
+		}
+
+		info, err := file.Info()
+		if err != nil {
+			continue
+		}
+
+		if info.Mode().Perm()&0111 != 0 {
+			hasExecutables = true
+			break
 		}
 	}
 

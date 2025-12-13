@@ -3,7 +3,6 @@ package workflow
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +20,6 @@ type AssetReader interface {
 	GetWorkflowFileNames() ([]string, error)
 }
 
-// Engine represents the workflow execution engine
 type Engine struct {
 	vm               *goja.Runtime
 	vars             map[string]string
@@ -32,12 +30,12 @@ type Engine struct {
 	toolPathProvider ToolPathProvider
 }
 
-// NewEngine creates a new workflow engine
 func NewEngine(ctx context.Context) *Engine {
-	vm := goja.New()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	fs := filesystem.NewFileSystem()
 
-	// Initialize network client
 	networkClient, err := network.NewNetworkClient()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize network client: %v\n", err)
@@ -45,7 +43,7 @@ func NewEngine(ctx context.Context) *Engine {
 	}
 
 	engine := &Engine{
-		vm:          vm,
+		vm:          nil,
 		vars:        make(map[string]string),
 		context:     ctx,
 		filesystem:  fs,
@@ -53,40 +51,53 @@ func NewEngine(ctx context.Context) *Engine {
 		network:     networkClient,
 	}
 
-	// Register all APIs
-	engine.registerAPIs()
-
 	return engine
 }
 
-// SetAssetReader sets the asset reader for embedded resources
 func (e *Engine) SetAssetReader(reader AssetReader) {
 	e.assetReader = reader
 }
 
-// SetVars sets runtime variables
 func (e *Engine) SetVars(vars map[string]string) {
 	e.vars = vars
 }
 
-// RunWorkflow executes a workflow script
 func (e *Engine) RunWorkflow(scriptPath string) error {
+	baseCtx := e.context
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+
+	ctx, cancel := context.WithCancel(baseCtx)
+	defer cancel()
+
+	vm := goja.New()
+	e.vm = vm
+	e.registerAPIs()
+
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			vm.Interrupt(ctx.Err())
+		case <-done:
+		}
+	}()
+
 	script, err := e.loadScript(scriptPath)
 	if err != nil {
+		close(done)
 		return err
 	}
 
-	return e.executeScript(script, scriptPath)
+	err = e.executeScript(script, scriptPath)
+	close(done)
+	return err
 }
 
-// loadScript loads script with enhanced priority:
-// 1. Direct path
-// 2. User's configured workflow directory
-// 3. Default downloaded workflow directory
-// 4. Embedded assets
 func (e *Engine) loadScript(scriptPath string) (string, error) {
 	// First priority: Try direct path (absolute or relative)
-	if content, err := ioutil.ReadFile(scriptPath); err == nil {
+	if content, err := os.ReadFile(scriptPath); err == nil {
 		return string(content), nil
 	}
 
@@ -153,7 +164,7 @@ func (e *Engine) tryConfiguredWorkflowPath(filename string) (string, error) {
 
 	workflowPath := filepath.Join(workflowsDir, filename)
 
-	if content, err := ioutil.ReadFile(workflowPath); err == nil {
+	if content, err := os.ReadFile(workflowPath); err == nil {
 		return string(content), nil
 	}
 
@@ -178,7 +189,7 @@ func (e *Engine) tryConfiguredWorkflowSubpath(relPath string) (string, error) {
 	normalizedPath := filepath.FromSlash(relPath)
 	workflowPath := filepath.Join(workflowsDir, normalizedPath)
 
-	if content, err := ioutil.ReadFile(workflowPath); err == nil {
+	if content, err := os.ReadFile(workflowPath); err == nil {
 		return string(content), nil
 	}
 
@@ -225,7 +236,7 @@ func (e *Engine) tryUserWorkflowPath(filename string) (string, error) {
 
 	userWorkflowPath := downloader.env.GetCrossPlatformUtils().JoinPath(downloader.GetWorkflowsDir(), filename)
 
-	if content, err := ioutil.ReadFile(userWorkflowPath); err == nil {
+	if content, err := os.ReadFile(userWorkflowPath); err == nil {
 		return string(content), nil
 	}
 
@@ -243,7 +254,7 @@ func (e *Engine) tryUserWorkflowSubpath(relPath string) (string, error) {
 	normalizedPath := filepath.FromSlash(relPath)
 	userWorkflowPath := downloader.env.GetCrossPlatformUtils().JoinPath(downloader.GetWorkflowsDir(), normalizedPath)
 
-	if content, err := ioutil.ReadFile(userWorkflowPath); err == nil {
+	if content, err := os.ReadFile(userWorkflowPath); err == nil {
 		return string(content), nil
 	}
 
@@ -264,11 +275,15 @@ func (e *Engine) executeScript(script, scriptPath string) error {
 	}
 
 	_, err := e.vm.RunString(script)
-	if err != nil {
-		return fmt.Errorf("execution failed for %s: %w", scriptPath, err)
+	if err == nil {
+		return nil
 	}
 
-	return nil
+	if exception, ok := err.(*goja.Exception); ok {
+		return fmt.Errorf("execution failed for %s: %s", scriptPath, exception.String())
+	}
+
+	return fmt.Errorf("execution failed for %s: %w", scriptPath, err)
 }
 
 // registerAPIs registers all JavaScript APIs

@@ -61,7 +61,10 @@ Examples:
   amo workflow get https://raw.githubusercontent.com/user/repo/main/workflow.js`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return downloadWorkflow(args[0], filename)
+			if err := downloadWorkflow(args[0], filename); err != nil {
+				return newInfraError(err)
+			}
+			return nil
 		},
 	}
 
@@ -120,7 +123,7 @@ func listAllWorkflows(cmd *cobra.Command, args []string) error {
 	// Get the workflow downloader
 	downloader, err := workflow.NewWorkflowDownloader()
 	if err != nil {
-		return fmt.Errorf("failed to initialize workflow downloader: %w", err)
+		return newInfraError(fmt.Errorf("failed to initialize workflow downloader: %w", err))
 	}
 
 	// Check for configured directory
@@ -211,7 +214,7 @@ func listAllWorkflows(cmd *cobra.Command, args []string) error {
 
 	workflows, err := AssetManager.GetWorkflowFileNames()
 	if err != nil {
-		return fmt.Errorf("failed to list embedded workflows: %w", err)
+		return newInfraError(fmt.Errorf("failed to list embedded workflows: %w", err))
 	}
 
 	if len(workflows) > 0 {
@@ -279,17 +282,17 @@ func downloadWorkflow(url, filename string) error {
 func listWorkflowSources(cmd *cobra.Command, args []string) error {
 	downloader, err := workflow.NewWorkflowDownloader()
 	if err != nil {
-		return fmt.Errorf("failed to initialize workflow downloader: %w", err)
+		return newInfraError(fmt.Errorf("failed to initialize workflow downloader: %w", err))
 	}
 
 	// Ensure file exists; if not, create with defaults
 	if err := downloader.EnsureAllowedSourcesFile(); err != nil {
-		return fmt.Errorf("failed to ensure sources file: %w", err)
+		return newInfraError(fmt.Errorf("failed to ensure sources file: %w", err))
 	}
 
 	sources, err := downloader.ListAllowedSources()
 	if err != nil {
-		return fmt.Errorf("failed to list workflow sources: %w", err)
+		return newInfraError(fmt.Errorf("failed to list workflow sources: %w", err))
 	}
 
 	fmt.Println("📋 Allowed workflow download sources:")
@@ -306,17 +309,17 @@ func listWorkflowSources(cmd *cobra.Command, args []string) error {
 func addWorkflowSource(cmd *cobra.Command, args []string) error {
 	entry := strings.TrimSpace(args[0])
 	if entry == "" {
-		return fmt.Errorf("source cannot be empty")
+		return newUserError("source cannot be empty")
 	}
 
 	downloader, err := workflow.NewWorkflowDownloader()
 	if err != nil {
-		return fmt.Errorf("failed to initialize workflow downloader: %w", err)
+		return newInfraError(fmt.Errorf("failed to initialize workflow downloader: %w", err))
 	}
 
 	created, err := downloader.AddAllowedSource(entry)
 	if err != nil {
-		return fmt.Errorf("failed to add source: %w", err)
+		return newInfraError(fmt.Errorf("failed to add source: %w", err))
 	}
 	if created {
 		fmt.Printf("✅ Added source: %s\n", entry)
@@ -330,17 +333,17 @@ func addWorkflowSource(cmd *cobra.Command, args []string) error {
 func removeWorkflowSource(cmd *cobra.Command, args []string) error {
 	entry := strings.TrimSpace(args[0])
 	if entry == "" {
-		return fmt.Errorf("source cannot be empty")
+		return newUserError("source cannot be empty")
 	}
 
 	downloader, err := workflow.NewWorkflowDownloader()
 	if err != nil {
-		return fmt.Errorf("failed to initialize workflow downloader: %w", err)
+		return newInfraError(fmt.Errorf("failed to initialize workflow downloader: %w", err))
 	}
 
 	removed, err := downloader.RemoveAllowedSource(entry)
 	if err != nil {
-		return fmt.Errorf("failed to remove source: %w", err)
+		return newInfraError(fmt.Errorf("failed to remove source: %w", err))
 	}
 	if removed {
 		fmt.Printf("✅ Removed source: %s\n", entry)

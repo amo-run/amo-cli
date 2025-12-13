@@ -8,6 +8,64 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type ExitCodeError interface {
+	error
+	ExitCode() int
+}
+
+type exitError struct {
+	code int
+	err  error
+}
+
+func (e *exitError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e *exitError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func (e *exitError) ExitCode() int {
+	if e == nil {
+		return 1
+	}
+	return e.code
+}
+
+const (
+	ExitCodeInfraError   = 1
+	ExitCodeRuntimeError = 2
+	ExitCodeUserError    = 3
+)
+
+func newInfraError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &exitError{code: ExitCodeInfraError, err: err}
+}
+
+func newRuntimeError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &exitError{code: ExitCodeRuntimeError, err: err}
+}
+
+func newUserError(message string, args ...interface{}) error {
+	return &exitError{
+		code: ExitCodeUserError,
+		err:  fmt.Errorf(message, args...),
+	}
+}
+
 // Version information set by build flags
 var (
 	Version   = "dev"
