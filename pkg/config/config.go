@@ -15,11 +15,19 @@ const (
 )
 
 const (
-	KeyWorkflowDir = "workflows"
+	KeyWorkflowDir                        = "workflows"
+	KeyNetworkDialTimeoutSeconds          = "network_dial_timeout_seconds"
+	KeyNetworkTLSHandshakeTimeoutSeconds  = "network_tls_handshake_timeout_seconds"
+	KeyNetworkResponseHeaderTimeoutSecond = "network_response_header_timeout_seconds"
+	KeyNetworkIdleTimeoutSeconds          = "network_idle_timeout_seconds"
 )
 
 var DefaultConfig = map[string]interface{}{
-	KeyWorkflowDir: "",
+	KeyWorkflowDir:                        "",
+	KeyNetworkDialTimeoutSeconds:          15,
+	KeyNetworkTLSHandshakeTimeoutSeconds:  15,
+	KeyNetworkResponseHeaderTimeoutSecond: 60,
+	KeyNetworkIdleTimeoutSeconds:          300,
 }
 
 type Manager struct {
@@ -129,6 +137,14 @@ func (m *Manager) GetBool(key string) bool {
 	}
 
 	return m.viper.GetBool(key)
+}
+
+func (m *Manager) GetInt(key string) int {
+	if err := m.Initialize(); err != nil {
+		return 0
+	}
+
+	return m.viper.GetInt(key)
 }
 
 func (m *Manager) Unset(key string) error {

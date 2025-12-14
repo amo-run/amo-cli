@@ -3,14 +3,11 @@ package workflow
 import (
 	"crypto/sha1"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"amo/pkg/env"
 	"amo/pkg/network"
@@ -19,8 +16,7 @@ import (
 )
 
 type WorkflowDownloader struct {
-	env    *env.Environment
-	client *http.Client
+	env *env.Environment
 }
 
 func NewWorkflowDownloader() (*WorkflowDownloader, error) {
@@ -29,13 +25,8 @@ func NewWorkflowDownloader() (*WorkflowDownloader, error) {
 		return nil, fmt.Errorf("failed to initialize environment: %w", err)
 	}
 
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-
 	return &WorkflowDownloader{
-		env:    environment,
-		client: client,
+		env: environment,
 	}, nil
 }
 
@@ -148,70 +139,6 @@ func (wd *WorkflowDownloader) DownloadWorkflow(urlStr string, filename string) e
 	return nil
 }
 
-func (wd *WorkflowDownloader) downloadFromURL(urlStr string) ([]byte, error) {
-	resp, err := wd.client.Get(urlStr)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", urlStr, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download failed with status %d: %s", resp.StatusCode, resp.Status)
-	}
-
-	contentLength := resp.ContentLength
-	var downloaded int64
-	buffer := make([]byte, 32*1024)
-	startTime := time.Now()
-	lastReport := startTime
-
-	var out []byte
-	for {
-		n, readErr := resp.Body.Read(buffer)
-		if n > 0 {
-			out = append(out, buffer[:n]...)
-			downloaded += int64(n)
-
-			now := time.Now()
-			if now.Sub(lastReport) >= 200*time.Millisecond || (contentLength > 0 && downloaded == contentLength) {
-				elapsed := now.Sub(startTime)
-				if elapsed <= 0 {
-					elapsed = time.Millisecond
-				}
-				speed := float64(downloaded) / elapsed.Seconds()
-				if contentLength > 0 {
-					percentage := int(float64(downloaded) / float64(contentLength) * 100)
-					fmt.Printf("\r⬇️  Fetching script... %3d%% (%s/%s) - %s",
-						percentage,
-						formatBytes(downloaded),
-						formatBytes(contentLength),
-						formatBytes(int64(speed))+"/s",
-					)
-				} else {
-					fmt.Printf("\r⬇️  Fetching script... %s - %s",
-						formatBytes(downloaded),
-						formatBytes(int64(speed))+"/s",
-					)
-				}
-				lastReport = now
-			}
-		}
-
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			return nil, fmt.Errorf("failed to read response body: %w", readErr)
-		}
-	}
-
-	if downloaded > 0 {
-		fmt.Println()
-	}
-
-	return out, nil
-}
-
 func (wd *WorkflowDownloader) downloadToFileWithResume(urlStr, outputPath string) error {
 	nc, err := network.NewNetworkClient()
 	if err != nil {
@@ -306,4 +233,3 @@ func (wd *WorkflowDownloader) ListUserWorkflows() ([]string, error) {
 
 	return workflows, nil
 }
-

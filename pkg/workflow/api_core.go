@@ -28,6 +28,14 @@ func (e *Engine) getRegion() string {
 	return environment.DetectRegion()
 }
 
+func (e *Engine) getOS() string {
+	environment, err := env.NewEnvironment()
+	if err != nil {
+		return "unknown"
+	}
+	return environment.GetOperatingSystem()
+}
+
 func (e *Engine) consoleLog(args ...interface{}) {
 	fmt.Println(args...)
 }
@@ -50,10 +58,12 @@ func (e *Engine) cliCommand(name string, args []string, opts map[string]interfac
 		}
 	}
 
-	allowed, err := environment.IsCommandAllowed(name)
+	// Extract base command name from path for whitelist validation
+	baseName := filepath.Base(name)
+	allowed, err := environment.IsCommandAllowed(baseName)
 	if err != nil || !allowed {
 		return map[string]interface{}{
-			"error": fmt.Sprintf("command '%s' is not in the allowed CLI commands list", name),
+			"error": fmt.Sprintf("command '%s' (base: '%s') is not in the allowed CLI commands list", name, baseName),
 		}
 	}
 
@@ -227,6 +237,7 @@ func getCurrentUser() string {
 func (e *Engine) registerCoreAPI() {
 	e.vm.Set("getVar", e.getVar)
 	e.vm.Set("getRegion", e.getRegion)
+	e.vm.Set("getOS", e.getOS)
 	e.vm.Set("cliCommand", e.cliCommand)
 
 	e.vm.Set("console", map[string]interface{}{

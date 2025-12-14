@@ -1,15 +1,19 @@
 package network
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"amo/pkg/config"
 	"amo/pkg/env"
 )
 
@@ -35,11 +39,40 @@ func NewNetworkClient() (*NetworkClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize environment: %w", err)
 	}
+	var cfg *config.Manager
+	if c, cfgErr := config.NewManager(); cfgErr == nil {
+		cfg = c
+	}
 
+	dialTimeout := resolveTimeoutSeconds(cfg, config.KeyNetworkDialTimeoutSeconds, "AMO_NET_DIAL_TIMEOUT", 15)
+	tlsTimeout := resolveTimeoutSeconds(cfg, config.KeyNetworkTLSHandshakeTimeoutSeconds, "AMO_NET_TLS_TIMEOUT", 15)
+	headerTimeout := resolveTimeoutSeconds(cfg, config.KeyNetworkResponseHeaderTimeoutSecond, "AMO_NET_HEADER_TIMEOUT", 60)
+	idleTimeout := resolveTimeoutSeconds(cfg, config.KeyNetworkIdleTimeoutSeconds, "AMO_NET_IDLE_TIMEOUT", 300)
+
+	baseDialer := &net.Dialer{
+		Timeout:   dialTimeout,
+		KeepAlive: 30 * time.Second,
+	}
+
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, dErr := baseDialer.DialContext(ctx, network, addr)
+			if dErr != nil {
+				return nil, dErr
+			}
+			if idleTimeout > 0 {
+				return &idleTimeoutConn{Conn: conn, idleTimeout: idleTimeout}, nil
+			}
+			return conn, nil
+		},
+		TLSHandshakeTimeout:   tlsTimeout,
+		ResponseHeaderTimeout: headerTimeout,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
 	client := &http.Client{
-		Timeout: 600 * time.Second,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Limit redirects and check allowed hosts
 			if len(via) >= 10 {
 				return fmt.Errorf("too many redirects")
 			}
@@ -338,4 +371,46 @@ func (nc *NetworkClient) extractHeaders(headers http.Header) map[string]string {
 		}
 	}
 	return result
+}
+
+func resolveTimeoutSeconds(cfg *config.Manager, configKey, envKey string, defaultSeconds int) time.Duration {
+	if value := strings.TrimSpace(os.Getenv(envKey)); value != "" {
+		if seconds, err := strconv.Atoi(value); err == nil {
+			if seconds <= 0 {
+				return 0
+			}
+			return time.Duration(seconds) * time.Second
+		}
+	}
+
+	if cfg != nil {
+		seconds := cfg.GetInt(configKey)
+		if seconds != 0 {
+			if seconds < 0 {
+				return 0
+			}
+			return time.Duration(seconds) * time.Second
+		}
+	}
+
+	return time.Duration(defaultSeconds) * time.Second
+}
+
+type idleTimeoutConn struct {
+	net.Conn
+	idleTimeout time.Duration
+}
+
+func (c *idleTimeoutConn) Read(b []byte) (int, error) {
+	if err := c.Conn.SetReadDeadline(time.Now().Add(c.idleTimeout)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Read(b)
+}
+
+func (c *idleTimeoutConn) Write(b []byte) (int, error) {
+	if err := c.Conn.SetWriteDeadline(time.Now().Add(c.idleTimeout)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Write(b)
 }

@@ -286,3 +286,49 @@ func (d *RegionDetector) DebugInfo() map[string]interface{} {
 	
 	return debugInfo
 }
+
+func (d *RegionDetector) CalculateDetailedScore(regionCode string) map[string]float64 {
+	config := GetRegionConfig(regionCode)
+	if config == nil {
+		return map[string]float64{
+			"language": 0,
+			"timezone": 0,
+			"country":  0,
+			"misc":     0,
+			"total":    0,
+		}
+	}
+	
+	// 计算各项评分
+	langScore := d.calculateLanguageScore(*config)
+	tzScore := d.calculateTimezoneScore(*config)
+	countryScore := d.calculateCountryScore(*config)
+	miscScore := d.calculateMiscScore(*config)
+	
+	// 计算总评分
+	var totalWeight float64 = 100
+	var weights = map[string]float64{
+		"language": 40,
+		"timezone": 30,
+		"country":  20,
+		"misc":     10,
+	}
+	
+	totalScore := (langScore * weights["language"]) / totalWeight
+	totalScore += (tzScore * weights["timezone"]) / totalWeight
+	totalScore += (countryScore * weights["country"]) / totalWeight
+	totalScore += (miscScore * weights["misc"]) / totalWeight
+	
+	// 完美语言+国家匹配的额外加分
+	if langScore == 1.0 && d.hasPerfectLanguageMatch(config) {
+		totalScore += 0.3
+	}
+	
+	return map[string]float64{
+		"language": langScore,
+		"timezone": tzScore,
+		"country":  countryScore,
+		"misc":     miscScore,
+		"total":    totalScore,
+	}
+}
