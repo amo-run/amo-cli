@@ -64,7 +64,7 @@ func runWorkflowCommand(cmd *cobra.Command, args []string) error {
 	scriptPath := args[0]
 
 	// Help mode - just run the workflow with --help flag
-		if workflowHelp, _ := cmd.Flags().GetBool("workflow-help"); workflowHelp {
+	if workflowHelp, _ := cmd.Flags().GetBool("workflow-help"); workflowHelp {
 		vars := map[string]string{
 			"help": "true",
 		}

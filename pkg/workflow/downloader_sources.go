@@ -163,4 +163,3 @@ func (wd *WorkflowDownloader) RemoveAllowedSource(entry string) (bool, error) {
 	}
 	return true, nil
 }
-

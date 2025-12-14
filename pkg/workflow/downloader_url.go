@@ -181,4 +181,3 @@ func (wd *WorkflowDownloader) convertToMirrorURL(githubURL string) (string, erro
 
 	return "", fmt.Errorf("unsupported GitHub URL format: %s", githubURL)
 }
-

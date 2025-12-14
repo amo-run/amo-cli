@@ -21,10 +21,10 @@ func (e *Engine) registerNetworkAPI() {
 
 	// Network available, register actual functions
 	e.vm.Set("http", map[string]interface{}{
-		"get":             e.httpGet,
-		"post":            e.httpPost,
-		"getJSON":         e.httpGetJSON,
-		"downloadFile":    e.httpDownloadFile,
+		"get":                e.httpGet,
+		"post":               e.httpPost,
+		"getJSON":            e.httpGetJSON,
+		"downloadFile":       e.httpDownloadFile,
 		"downloadFileResume": e.httpDownloadFileResume,
 	})
 }

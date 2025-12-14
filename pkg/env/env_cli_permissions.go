@@ -183,4 +183,3 @@ func (e *Environment) saveAllowedCLICommands(commands []string) error {
 
 	return e.crossPlatform.CreateFileWithPermissions(filePath, []byte(content), false)
 }
-

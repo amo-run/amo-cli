@@ -66,4 +66,3 @@ func (m *Manager) NewToolPathProviderAdapter() *ToolPathProviderAdapter {
 func (a *ToolPathProviderAdapter) GetCachedToolPath(commandName string) (string, bool) {
 	return a.manager.GetCachedToolPath(commandName)
 }
-
