@@ -20,6 +20,14 @@ func (e *Engine) getVar(key string) string {
 	return e.vars[key]
 }
 
+func (e *Engine) getRegion() string {
+	environment, err := env.NewEnvironment()
+	if err != nil {
+		return "global"
+	}
+	return environment.DetectRegion()
+}
+
 func (e *Engine) consoleLog(args ...interface{}) {
 	fmt.Println(args...)
 }
@@ -217,11 +225,10 @@ func getCurrentUser() string {
 }
 
 func (e *Engine) registerCoreAPI() {
-	// Set core functions
 	e.vm.Set("getVar", e.getVar)
+	e.vm.Set("getRegion", e.getRegion)
 	e.vm.Set("cliCommand", e.cliCommand)
 
-	// Set console API
 	e.vm.Set("console", map[string]interface{}{
 		"log":   e.consoleLog,
 		"error": e.consoleError,

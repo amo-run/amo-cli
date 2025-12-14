@@ -94,8 +94,6 @@ func runToolInstallCommand(cmd *cobra.Command, args []string) error {
 		return newInfraError(err)
 	}
 
-	manager.SetPreferMirror(preferMirror)
-
 	if toolName == "all" {
 		if sourceURL != "" {
 			return newUserError("--url cannot be used with 'all'. Provide a specific tool name.")

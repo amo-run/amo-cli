@@ -19,7 +19,6 @@ type Manager struct {
 	config         *ToolConfig
 	environment    *env.Environment
 	pathCache      *ToolPathCache
-	preferMirror   bool
 	workflowEngine WorkflowEngine
 }
 
@@ -53,11 +52,6 @@ func NewManager() (*Manager, error) {
 	}
 
 	return manager, nil
-}
-
-// SetPreferMirror sets whether to prefer mirror downloads over GitHub first
-func (m *Manager) SetPreferMirror(prefer bool) {
-	m.preferMirror = prefer
 }
 
 // SetWorkflowEngine sets the workflow engine for the manager

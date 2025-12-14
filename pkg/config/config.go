@@ -11,21 +11,17 @@ import (
 )
 
 const (
-	// ConfigFileName is the name of the configuration file
 	ConfigFileName = "config.yaml"
 )
 
-// Config keys
 const (
 	KeyWorkflowDir = "workflows"
 )
 
-// DefaultConfig holds the default configuration values
 var DefaultConfig = map[string]interface{}{
 	KeyWorkflowDir: "",
 }
 
-// Manager handles configuration operations
 type Manager struct {
 	viper         *viper.Viper
 	environment   *env.Environment
@@ -34,7 +30,6 @@ type Manager struct {
 	isInitialized bool
 }
 
-// NewManager creates a new configuration manager
 func NewManager() (*Manager, error) {
 	environment, err := env.NewEnvironment()
 	if err != nil {
@@ -58,7 +53,6 @@ func NewManager() (*Manager, error) {
 	return manager, nil
 }
 
-// Initialize loads the configuration file or creates it if it doesn't exist
 func (m *Manager) Initialize() error {
 	if m.isInitialized {
 		return nil
@@ -100,12 +94,10 @@ func (m *Manager) Initialize() error {
 	return nil
 }
 
-// GetConfigFile returns the path to the configuration file
 func (m *Manager) GetConfigFile() string {
 	return m.configFile
 }
 
-// Set sets a configuration value
 func (m *Manager) Set(key string, value interface{}) error {
 	if err := m.Initialize(); err != nil {
 		return err
@@ -115,7 +107,6 @@ func (m *Manager) Set(key string, value interface{}) error {
 	return m.viper.WriteConfig()
 }
 
-// Get retrieves a configuration value
 func (m *Manager) Get(key string) interface{} {
 	if err := m.Initialize(); err != nil {
 		return nil
@@ -124,7 +115,6 @@ func (m *Manager) Get(key string) interface{} {
 	return m.viper.Get(key)
 }
 
-// GetString retrieves a string configuration value
 func (m *Manager) GetString(key string) string {
 	if err := m.Initialize(); err != nil {
 		return ""
@@ -133,7 +123,14 @@ func (m *Manager) GetString(key string) string {
 	return m.viper.GetString(key)
 }
 
-// Unset removes a configuration value, reverting to default
+func (m *Manager) GetBool(key string) bool {
+	if err := m.Initialize(); err != nil {
+		return false
+	}
+
+	return m.viper.GetBool(key)
+}
+
 func (m *Manager) Unset(key string) error {
 	if err := m.Initialize(); err != nil {
 		return err

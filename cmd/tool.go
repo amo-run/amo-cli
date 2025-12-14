@@ -6,7 +6,6 @@ import "github.com/spf13/cobra"
 var (
 	forceReinstall bool
 	showDetails    bool
-	preferMirror   bool
 	sourceURL      string
 )
 
@@ -44,7 +43,6 @@ Subcommands:
 		RunE:  runToolInstallCommand,
 	}
 	installCmd.Flags().BoolVar(&forceReinstall, "force", false, "Force reinstall even if tool is already installed")
-	installCmd.Flags().BoolVar(&preferMirror, "mirror", false, "Prefer downloading from mirror first")
 	installCmd.Flags().StringVar(&sourceURL, "url", "", "Override download URL for installer or binary (advanced)")
 
 	// Permission subcommand

@@ -15,24 +15,22 @@
 
 const WORKFLOW_NAME = "imagemagick-windows-installer";
 const IMAGEMAGICK_BASE_URL = "https://imagemagick.org/archive/binaries/";
-const MIRROR_BASE_URL = "https://toolchains.mirror.toulan.fun/software/";
 
-// Region detection based on system environment
-function detectRegion() {
-    try {
-        // Get system locale from environment
-        const locale = getVar('LANG') || getVar('LC_ALL') || 'en_US.UTF-8';
-        
-        // Check locale
-        if (locale && (locale.startsWith('zh') || locale.startsWith('cn'))) {
-            return 'china';
-        }
-        
-        return 'global';
-    } catch (error) {
-        console.warn('Failed to detect region, defaulting to global:', error.message);
-        return 'global';
-    }
+// Region to mirror URL mapping
+// Add new regions here as needed
+const REGION_MIRRORS = {
+    'cn': 'https://toolchains.mirror.toulan.fun/software/',
+    'china': 'https://toolchains.mirror.toulan.fun/software/',
+    // Future regions can be added here:
+    // 'jp': 'https://mirror.example.co.jp/software/',
+    // 'eu': 'https://mirror.example.eu/software/',
+};
+
+// Get mirror URL for a specific region
+function getMirrorUrl(region) {
+    // Normalize region to lowercase
+    const normalizedRegion = region.toLowerCase();
+    return REGION_MIRRORS[normalizedRegion] || null;
 }
 
 // Scrape ImageMagick website for portable versions
@@ -140,18 +138,19 @@ async function scrapeImageMagickVersions(baseUrl) {
     }
 }
 
-// Get the latest portable version URL based on region
 async function getLatestPortableUrl(region) {
     console.log(`🌍 Detected region: ${region}`);
     
     let versions = [];
     let usedMirror = false;
     
-    // Try mirror first for China region
-    if (region === 'china') {
+    // Check if there's a mirror available for this region
+    const mirrorUrl = getMirrorUrl(region);
+    
+    if (mirrorUrl) {
+        console.log(`🔄 Mirror found for region ${region}, trying mirror first: ${mirrorUrl}`);
         try {
-            // Try to get from mirror (might be pre-cached)
-            const mirrorResponse = http.get(MIRROR_BASE_URL);
+            const mirrorResponse = http.get(mirrorUrl);
             if (!mirrorResponse.error) {
                 const mirrorHtml = mirrorResponse.body;
                 const mirrorPattern = /href="(ImageMagick-([0-9.]+-[0-9]+)-portable-Q16-x64\.7z)"/g;
@@ -161,7 +160,7 @@ async function getLatestPortableUrl(region) {
                     versions.push({
                         filename: match[1],
                         version: match[2],
-                        url: MIRROR_BASE_URL + match[1],
+                        url: mirrorUrl + match[1],
                         timestamp: Date.now(),
                         source: 'mirror'
                     });
@@ -170,20 +169,27 @@ async function getLatestPortableUrl(region) {
                 if (versions.length > 0) {
                     usedMirror = true;
                     console.log(`✅ Found ${versions.length} versions on mirror`);
+                } else {
+                    console.log(`⚠️  No versions found on mirror, falling back to official site`);
                 }
+            } else {
+                console.log(`⚠️  Mirror access failed (${mirrorResponse.error}), falling back to official site`);
             }
         } catch (error) {
             console.warn(`⚠️  Mirror access failed, trying official site: ${error.message}`);
         }
+    } else {
+        console.log(`🌍 No mirror configured for region ${region}, using official site`);
     }
     
-    // If no versions from mirror or not China region, scrape official site
+    // If no versions from mirror or no mirror for this region, scrape official site
     if (versions.length === 0) {
         try {
+            console.log(`📡 Scraping official ImageMagick site...`);
             const officialVersions = await scrapeImageMagickVersions(IMAGEMAGICK_BASE_URL);
             versions = officialVersions.map(v => ({ ...v, source: 'official' }));
         } catch (error) {
-            throw new Error(`Failed to get ImageMagick versions from both mirror and official site: ${error.message}`);
+            throw new Error(`Failed to get ImageMagick versions from official site: ${error.message}`);
         }
     }
     
@@ -343,8 +349,8 @@ async function main() {
         // Create downloads directory if it doesn't exist
         await fs.mkdir(downloadsDir);
         
-        // Detect region
-        const region = detectRegion();
+        // Detect region using workflow engine API
+        const region = getRegion();
         
         // Get latest portable URL
         const downloadInfo = await getLatestPortableUrl(region);

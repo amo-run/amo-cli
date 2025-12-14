@@ -83,6 +83,15 @@ func (e *Environment) GetArchitecture() string {
 	return runtime.GOARCH
 }
 
+func (e *Environment) DetectRegion() string {
+	if value := strings.TrimSpace(e.crossPlatform.GetEnvironmentVariable("AMO_REGION")); value != "" {
+		return strings.ToLower(value)
+	}
+
+	detector := NewRegionDetector()
+	return detector.DetectRegion()
+}
+
 func (e *Environment) GetSystemInfo() (map[string]interface{}, error) {
 	cwd, err := e.GetCurrentWorkingDir()
 	if err != nil {

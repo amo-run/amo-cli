@@ -34,17 +34,15 @@ type CheckConfig struct {
 
 // InstallInfo represents installation information for a platform
 type InstallInfo struct {
-	Method      string            `json:"method"`
-	Package     string            `json:"package,omitempty"`
-	Packages    map[string]string `json:"packages,omitempty"`
-	URL         string            `json:"url,omitempty"`
-	Python      string            `json:"python,omitempty"`
-	Repo        string            `json:"repo,omitempty"`         // GitHub repository (e.g., "owner/repo")
-	Pattern     string            `json:"pattern,omitempty"`      // Asset filename pattern with placeholders
-	Target      string            `json:"target,omitempty"`       // Target executable name after extraction
-	Workflow    string            `json:"workflow,omitempty"`     // Workflow name for workflow-based installation
-	PortableURL string            `json:"portable_url,omitempty"` // URL for portable versions
-	MirrorURL   string            `json:"mirror_url,omitempty"`   // Mirror URL for downloads
+	Method   string            `json:"method"`
+	Package  string            `json:"package,omitempty"`
+	Packages map[string]string `json:"packages,omitempty"`
+	URL      string            `json:"url,omitempty"`
+	Python   string            `json:"python,omitempty"`
+	Repo     string            `json:"repo,omitempty"`
+	Pattern  string            `json:"pattern,omitempty"`
+	Target   string            `json:"target,omitempty"`
+	Workflow string            `json:"workflow,omitempty"`
 }
 
 // ToolStatus represents the status of a tool
