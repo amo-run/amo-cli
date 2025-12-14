@@ -82,7 +82,7 @@ build_binary() {
 
 # Main build function
 main() {
-    echo -e "${BLUE}📦 Doc Text Extractor Build Script${NC}"
+    echo -e "${BLUE}📦 Amo CLI Build Script${NC}"
     echo "=================================="
     
     # Check if git is available

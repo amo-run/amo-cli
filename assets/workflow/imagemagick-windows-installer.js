@@ -19,11 +19,11 @@ const IMAGEMAGICK_BASE_URL = "https://imagemagick.org/archive/binaries/";
 // Region to mirror URL mapping
 // Add new regions here as needed
 const REGION_MIRRORS = {
-    'cn': 'https://toolchains.mirror.toulan.fun/software/',
-    'china': 'https://toolchains.mirror.toulan.fun/software/',
+    'cn': 'https://toolchains.mirror.toulan.fun/',
+    'china': 'https://toolchains.mirror.toulan.fun/',
     // Future regions can be added here:
-    // 'jp': 'https://mirror.example.co.jp/software/',
-    // 'eu': 'https://mirror.example.eu/software/',
+    // 'jp': 'https://mirror.example.co.jp/',
+    // 'eu': 'https://mirror.example.eu/',
 };
 
 // Get mirror URL for a specific region
@@ -48,8 +48,8 @@ async function scrapeImageMagickVersions(baseUrl) {
         
         const html = response.body;
         
-        // Debug: Show first 500 characters of HTML
-        console.log(`📝 HTML preview: ${html.substring(0, 500)}`);
+        // Debug: Show first 500 characters of HTML (verbose mode only)
+        // console.log(`📝 HTML preview: ${html.substring(0, 500)}`);
         
         // Debug: Look for any ZIP files in the HTML
         console.log(`🔍 Looking for any ZIP files...`);
@@ -61,15 +61,16 @@ async function scrapeImageMagickVersions(baseUrl) {
         }
         console.log(`📦 All ZIP files found: ${zipMatches.join(', ')}`);
         
-        // Debug: Look for any files containing "ImageMagick"
-        console.log(`🔍 Looking for files with "ImageMagick" in name...`);
+        // Debug: Look for any files containing "ImageMagick" (verbose mode only)
+        // console.log(`🔍 Looking for files with "ImageMagick" in name...`);
         const imagemagickPattern = /href="([^"]*ImageMagick[^"]*)"/g;
         let imagemagickMatches = [];
         let imagemagickMatch;
         while ((imagemagickMatch = imagemagickPattern.exec(html)) !== null) {
             imagemagickMatches.push(imagemagickMatch[1]);
         }
-        console.log(`🎯 ImageMagick files found: ${imagemagickMatches.join(', ')}`);
+        // console.log(`🎯 ImageMagick files found: ${imagemagickMatches.join(', ')}`);
+        console.log(`🎯 Found ${imagemagickMatches.length} ImageMagick files`);
         
         // Parse HTML to find portable archive files (7z or zip)
         const patterns = [
@@ -150,30 +151,67 @@ async function getLatestPortableUrl(region) {
     if (mirrorUrl) {
         console.log(`🔄 Mirror found for region ${region}, trying mirror first: ${mirrorUrl}`);
         try {
-            const mirrorResponse = http.get(mirrorUrl);
-            if (!mirrorResponse.error) {
-                const mirrorHtml = mirrorResponse.body;
-                const mirrorPattern = /href="(ImageMagick-([0-9.]+-[0-9]+)-portable-Q16-x64\.7z)"/g;
-                let match;
+            // Get versions.json from mirror
+            const versionsJsonUrl = mirrorUrl + 'versions.json';
+            console.log(`📡 Fetching versions.json from: ${versionsJsonUrl}`);
+            
+            const versionsResponse = http.get(versionsJsonUrl);
+            if (versionsResponse.error) {
+                throw new Error(`Failed to fetch versions.json: ${versionsResponse.error}`);
+            }
+            
+            // Parse versions.json
+            const versionsData = JSON.parse(versionsResponse.body);
+            
+            // Check if software section exists and has files
+            if (versionsData.software && versionsData.software.files) {
+                console.log(`📦 Found software section with ${versionsData.software.files.length} files`);
                 
-                while ((match = mirrorPattern.exec(mirrorHtml)) !== null) {
-                    versions.push({
-                        filename: match[1],
-                        version: match[2],
-                        url: mirrorUrl + match[1],
-                        timestamp: Date.now(),
-                        source: 'mirror'
-                    });
+                // Look for ImageMagick portable files
+                for (const file of versionsData.software.files) {
+                    if (file.name.includes('ImageMagick') && file.name.includes('portable')) {
+                        // Extract version from filename
+                        const versionMatch = file.name.match(/ImageMagick-([0-9.]+-[0-9]+)-portable/);
+                        const version = versionMatch ? versionMatch[1] : 'unknown';
+                        
+                        versions.push({
+                            filename: file.name,
+                            version: version,
+                            url: mirrorUrl + 'software/' + file.name,
+                            size: file.size,
+                            timestamp: Date.now(),
+                            source: 'mirror'
+                        });
+                        
+                        console.log(`🎯 Found ImageMagick on mirror: ${file.name} (${version})`);
+                    }
                 }
                 
                 if (versions.length > 0) {
                     usedMirror = true;
-                    console.log(`✅ Found ${versions.length} versions on mirror`);
+                    console.log(`✅ Found ${versions.length} ImageMagick versions on mirror`);
+                    
+                    // Sort by version (newest first)
+                    versions.sort((a, b) => {
+                        const aParts = a.version.split(/[-.]/);
+                        const bParts = b.version.split(/[-.]/);
+                        
+                        for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+                            const aPart = parseInt(aParts[i]) || 0;
+                            const bPart = parseInt(bParts[i]) || 0;
+                            
+                            if (aPart !== bPart) {
+                                return bPart - aPart; // Descending order
+                            }
+                        }
+                        
+                        return 0;
+                    });
                 } else {
-                    console.log(`⚠️  No versions found on mirror, falling back to official site`);
+                    console.log(`⚠️  No ImageMagick portable versions found in mirror software section`);
                 }
             } else {
-                console.log(`⚠️  Mirror access failed (${mirrorResponse.error}), falling back to official site`);
+                console.log(`⚠️  No software section found in versions.json`);
             }
         } catch (error) {
             console.warn(`⚠️  Mirror access failed, trying official site: ${error.message}`);
@@ -224,11 +262,11 @@ async function validateInstallation(installInfo) {
         
         try {
             const stats = await fs.stat(exePath);
-            if (stats.isFile()) {
+            if (stats && stats.success && stats.data && !stats.data.is_dir) {
                 results[exe] = {
                     exists: true,
                     path: exePath,
-                    size: stats.size
+                    size: stats.data.size
                 };
                 
                 // Try to get version from the main executable
@@ -236,7 +274,7 @@ async function validateInstallation(installInfo) {
                     mainExecutable = exePath;
                 }
                 
-                console.log(`✅ Found ${exe} (${Math.round(stats.size / 1024)}KB)`);
+                console.log(`✅ Found ${exe} (${Math.round(stats.data.size / 1024)}KB)`);
             } else {
                 results[exe] = { exists: false, error: 'Not a file' };
             }
@@ -250,9 +288,9 @@ async function validateInstallation(installInfo) {
     if (mainExecutable) {
         try {
             console.log(`🧪 Testing version command...`);
-            const result = await exec(mainExecutable, ['-version']);
+            const result = await cliCommand(mainExecutable, ['-version']);
             
-            if (result.exitCode === 0) {
+            if (!result.error) {
                 const output = result.stdout || result.stderr || '';
                 const versionMatch = output.match(/Version: ImageMagick ([^\s]+)/);
                 
@@ -264,7 +302,7 @@ async function validateInstallation(installInfo) {
                     results.version = 'unknown';
                 }
             } else {
-                console.log(`⚠️  Version command failed with exit code ${result.exitCode}`);
+                console.log(`⚠️  Version command failed: ${result.error}`);
                 results.version = 'unknown';
             }
         } catch (error) {
@@ -336,6 +374,16 @@ async function main() {
     console.log('=' .repeat(50));
     
     try {
+        // Check if running on Windows
+        const osType = getOS();
+        if (osType !== 'windows') {
+            console.error(`❌ This installer is designed for Windows systems only.`);
+            console.error(`   Current OS: ${osType}`);
+            console.error(`   Please use the appropriate installer for your operating system.`);
+            throw new Error(`Unsupported operating system: ${osType}`);
+        }
+        console.log(`✅ Running on Windows system`);
+        
         // Get configuration from environment variables
         const homeDir = getVar('HOME') || '/tmp';
         const installDir = getVar('INSTALL_DIR') || fs.join([homeDir, '.amo', 'tools']);
@@ -349,8 +397,9 @@ async function main() {
         // Create downloads directory if it doesn't exist
         await fs.mkdir(downloadsDir);
         
-        // Detect region using workflow engine API
+        // Get region from auto-detection
         const region = getRegion();
+        console.log(`🌍 Detected region: ${region}`);
         
         // Get latest portable URL
         const downloadInfo = await getLatestPortableUrl(region);
@@ -359,18 +408,33 @@ async function main() {
         const downloadPath = fs.join([downloadsDir, downloadInfo.filename]);
         console.log(`📥 Downloading to persistent location: ${downloadPath}`);
         
-        // Download using http.downloadFileResume (with breakpoint resume support)
-        const downloadResult = http.downloadFileResume(downloadInfo.url, downloadPath, { show_progress: true });
-        
-        if (downloadResult.error) {
-            throw new Error(`Download failed: ${downloadResult.error}`);
+        // Check if file already exists
+        let downloadResult;
+        try {
+            const stats = await fs.stat(downloadPath);
+            console.log(`🔍 File stats:`, JSON.stringify(stats));
+            // Check if it's a file and has content
+            if (stats && stats.success && stats.data && !stats.data.is_dir && stats.data.size > 0) {
+                console.log(`✅ File already exists, skipping download (${Math.round(stats.data.size / 1024 / 1024)}MB)`);
+                downloadResult = { status_code: 200, error: null };
+            } else {
+                throw new Error("File exists but is empty or not a regular file");
+            }
+        } catch (error) {
+            // File doesn't exist or is empty, download it
+            console.log(`📥 File not found, starting download... (${error.message})`);
+            downloadResult = http.downloadFileResume(downloadInfo.url, downloadPath, { show_progress: true });
+            
+            if (downloadResult.error) {
+                throw new Error(`Download failed: ${downloadResult.error}`);
+            }
+            
+            if (downloadResult.status_code !== 200 && downloadResult.status_code !== 206) {
+                throw new Error(`Download failed: HTTP ${downloadResult.status_code}`);
+            }
+            
+            console.log('\n✅ Download completed to persistent location');
         }
-        
-        if (downloadResult.status_code !== 200 && downloadResult.status_code !== 206) {
-            throw new Error(`Download failed: HTTP ${downloadResult.status_code}`);
-        }
-        
-        console.log('\n✅ Download completed to persistent location');
         
         // Now copy to install directory for extraction
         const tempZipPath = fs.join([installDir, downloadInfo.filename]);
@@ -382,26 +446,40 @@ async function main() {
         
         // Create extraction directory
         const extractDir = fs.join([installDir, `imagemagick-${downloadInfo.version}`]);
-        await fs.mkdir(extractDir);
         
-        // Extract 7z using external command
-        console.log(`📦 Extracting 7z file...`);
-        const extractResult = await cliCommand('7z', ['x', tempZipPath, '-o' + extractDir, '-y'], {
-            timeout: 300,
-            cwd: extractDir
-        });
-        
-        if (extractResult.error) {
-            throw new Error(`7z extraction failed: ${extractResult.error}`);
+        // Check if already extracted
+        try {
+            const stats = await fs.stat(extractDir);
+            console.log(`🔍 Directory stats:`, JSON.stringify(stats));
+            // Check if it's a directory
+            if (stats && stats.success && stats.data && stats.data.is_dir) {
+                console.log(`✅ Already extracted to: ${extractDir}`);
+            } else {
+                throw new Error("Path exists but is not a directory");
+            }
+        } catch (error) {
+            // Directory doesn't exist, extract the file
+            console.log(`📦 Directory not found, extracting files... (${error.message})`);
+            await fs.mkdir(extractDir);
+            
+            // Extract 7z using external command
+            console.log(`📦 Extracting 7z file...`);
+            const extractResult = await cliCommand('7z', ['x', tempZipPath, '-o' + extractDir, '-y'], {
+                timeout: 300,
+                cwd: extractDir
+            });
+            
+            if (extractResult.error) {
+                throw new Error(`7z extraction failed: ${extractResult.error}`);
+            }
+            
+            console.log(`✅ 7z extraction completed`);
+            console.log(`✅ Extraction completed to: ${extractDir}`);
+            
+            // Clean up temporary file from install directory (keep persistent download)
+            await fs.remove(tempZipPath);
+            console.log(`🧹 Cleaned up temporary file: ${downloadInfo.filename}`);
         }
-        
-        console.log(`✅ 7z extraction completed`);
-        
-        console.log(`✅ Extraction completed to: ${extractDir}`);
-        
-        // Clean up temporary file from install directory (keep persistent download)
-        await fs.remove(tempZipPath);
-        console.log(`🧹 Cleaned up temporary file: ${downloadInfo.filename}`);
         
         const extractInfo = {
             extractDir: extractDir,
