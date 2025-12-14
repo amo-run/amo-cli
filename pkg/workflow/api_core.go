@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"amo/pkg/config"
 	"amo/pkg/env"
 )
 
@@ -50,20 +51,25 @@ func (e *Engine) consoleWarn(args ...interface{}) {
 }
 
 func (e *Engine) cliCommand(name string, args []string, opts map[string]interface{}) map[string]interface{} {
-	// Security check - CLI command whitelist
-	environment, err := env.NewEnvironment()
-	if err != nil {
-		return map[string]interface{}{
-			"error": fmt.Sprintf("failed to initialize environment for security check: %v", err),
-		}
+	useWhitelist := true
+	if manager, err := config.NewManager(); err == nil {
+		useWhitelist = manager.GetBool(config.KeySecurityWhitelistEnabled)
 	}
 
-	// Extract base command name from path for whitelist validation
-	baseName := filepath.Base(name)
-	allowed, err := environment.IsCommandAllowed(baseName)
-	if err != nil || !allowed {
-		return map[string]interface{}{
-			"error": fmt.Sprintf("command '%s' (base: '%s') is not in the allowed CLI commands list", name, baseName),
+	if useWhitelist {
+		environment, err := env.NewEnvironment()
+		if err != nil {
+			return map[string]interface{}{
+				"error": fmt.Sprintf("failed to initialize environment for security check: %v", err),
+			}
+		}
+
+		baseName := filepath.Base(name)
+		allowed, err := environment.IsCommandAllowed(baseName)
+		if err != nil || !allowed {
+			return map[string]interface{}{
+				"error": fmt.Sprintf("command '%s' (base: '%s') is not in the allowed CLI commands list", name, baseName),
+			}
 		}
 	}
 
@@ -125,13 +131,13 @@ func (e *Engine) cliCommand(name string, args []string, opts map[string]interfac
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 
-	// Handle interactive mode
+	var err error
 	if interactive {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
-		err := cmd.Run()
+		err = cmd.Run()
 		if err != nil {
 			return map[string]interface{}{
 				"error": err.Error(),

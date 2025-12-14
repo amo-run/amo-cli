@@ -20,6 +20,7 @@ const (
 	KeyNetworkTLSHandshakeTimeoutSeconds  = "network_tls_handshake_timeout_seconds"
 	KeyNetworkResponseHeaderTimeoutSecond = "network_response_header_timeout_seconds"
 	KeyNetworkIdleTimeoutSeconds          = "network_idle_timeout_seconds"
+	KeySecurityWhitelistEnabled           = "security_cli_whitelist_enabled"
 )
 
 var DefaultConfig = map[string]interface{}{
@@ -28,6 +29,7 @@ var DefaultConfig = map[string]interface{}{
 	KeyNetworkTLSHandshakeTimeoutSeconds:  15,
 	KeyNetworkResponseHeaderTimeoutSecond: 60,
 	KeyNetworkIdleTimeoutSeconds:          300,
+	KeySecurityWhitelistEnabled:           false,
 }
 
 type Manager struct {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"amo/pkg/cli"
+	"amo/pkg/config"
 	"amo/pkg/tool"
 	"amo/pkg/workflow"
 
@@ -23,6 +24,8 @@ var (
 	runDebug       bool
 	runTimeoutSecs int
 )
+
+var whitelistWarningShown bool
 
 // NewRunCmd creates the run subcommand for executing workflows
 func NewRunCmd() *cobra.Command {
@@ -120,6 +123,16 @@ func runWorkflowCommand(cmd *cobra.Command, args []string) error {
 }
 
 func executeWorkflow(scriptPath string, vars map[string]string, timeout int, debug bool) error {
+	if !whitelistWarningShown {
+		if manager, err := config.NewManager(); err == nil {
+			if !manager.GetBool(config.KeySecurityWhitelistEnabled) {
+				fmt.Fprintln(os.Stderr, "⚠️ Workflow CLI whitelist security is currently DISABLED. Workflows can execute system commands directly.")
+				fmt.Fprintln(os.Stderr, "   It is strongly recommended to enable the whitelist via `amo config security_cli_whitelist_enabled true` to improve security.")
+				whitelistWarningShown = true
+			}
+		}
+	}
+
 	if debug {
 		fmt.Fprintf(os.Stderr, "🚀 Amo Workflow Engine\n")
 		fmt.Fprintf(os.Stderr, "======================\n")

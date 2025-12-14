@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewConfigCmd creates the config subcommand
 func NewConfigCmd() *cobra.Command {
 	configCmd := &cobra.Command{
 		Use:   "config [<key> [<value>]]",
@@ -31,19 +30,18 @@ Examples:
   amo config rm workflows               # Reset to default
 
 Supported configuration keys:
-  workflows    Directory path for custom workflows`,
+  workflows                     Directory path for custom workflows
+  security_cli_whitelist_enabled  Enable workflow CLI whitelist (true/false)`,
 		Args: cobra.MaximumNArgs(2),
 		RunE: runConfigCommand,
 	}
 
-	// Add subcommands
 	configCmd.AddCommand(newConfigLsCmd())
 	configCmd.AddCommand(newConfigRmCmd())
 
 	return configCmd
 }
 
-// newConfigLsCmd creates the config ls subcommand (renamed from list)
 func newConfigLsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
@@ -57,7 +55,6 @@ Example:
 	}
 }
 
-// newConfigRmCmd creates the config rm subcommand (renamed from unset)
 func newConfigRmCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rm <key>",
@@ -71,29 +68,22 @@ Example:
 	}
 }
 
-// runConfigCommand handles the unified config command
-// - config <key> to get a value
-// - config <key> <value> to set a value
 func runConfigCommand(cmd *cobra.Command, args []string) error {
-	// Create config manager
 	manager, err := config.NewManager()
 	if err != nil {
 		return newInfraError(fmt.Errorf("failed to initialize config manager: %w", err))
 	}
 
-	// No args - show help
 	if len(args) == 0 {
 		return cmd.Help()
 	}
 
 	key := args[0]
 
-	// Check if key is valid
 	if !manager.IsValidKey(key) {
 		return newUserError("invalid configuration key: %s (valid keys: %s)", key, strings.Join(manager.GetValidKeys(), ", "))
 	}
 
-	// Case 1: config <key> - get value
 	if len(args) == 1 {
 		value := manager.Get(key)
 		if value == nil || value == "" {
@@ -104,7 +94,6 @@ func runConfigCommand(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Case 2: config <key> <value> - set value
 	value := args[1]
 	if err := manager.Set(key, value); err != nil {
 		return newInfraError(fmt.Errorf("failed to set configuration: %w", err))
@@ -114,7 +103,6 @@ func runConfigCommand(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runConfigLsCmd handles the config ls command (renamed from list)
 func runConfigLsCmd(cmd *cobra.Command, args []string) error {
 	manager, err := config.NewManager()
 	if err != nil {
@@ -125,7 +113,6 @@ func runConfigLsCmd(cmd *cobra.Command, args []string) error {
 
 	settings := manager.GetAll()
 
-	// Get all valid keys to ensure ordered display
 	validKeys := manager.GetValidKeys()
 
 	if len(validKeys) == 0 {
@@ -133,11 +120,9 @@ func runConfigLsCmd(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Iterate through all valid keys
 	for _, key := range validKeys {
 		value, exists := settings[key]
 
-		// Check if configuration is set
 		if exists && value != nil && value != "" {
 			fmt.Printf("%s = %v\n", key, value)
 		} else {
@@ -148,7 +133,6 @@ func runConfigLsCmd(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runConfigRmCmd handles the config rm command (renamed from unset)
 func runConfigRmCmd(cmd *cobra.Command, args []string) error {
 	manager, err := config.NewManager()
 	if err != nil {
