@@ -37,6 +37,13 @@ func (e *Engine) getOS() string {
 	return environment.GetOperatingSystem()
 }
 
+func (e *Engine) getArch() string {
+	environment, err := env.NewEnvironment()
+	if err != nil {
+		return "unknown"
+	}
+	return environment.GetArchitecture()
+}
 func (e *Engine) consoleLog(args ...interface{}) {
 	fmt.Println(args...)
 }
@@ -244,6 +251,7 @@ func (e *Engine) registerCoreAPI() {
 	e.vm.Set("getVar", e.getVar)
 	e.vm.Set("getRegion", e.getRegion)
 	e.vm.Set("getOS", e.getOS)
+	e.vm.Set("getArch", e.getArch)
 	e.vm.Set("cliCommand", e.cliCommand)
 
 	e.vm.Set("console", map[string]interface{}{

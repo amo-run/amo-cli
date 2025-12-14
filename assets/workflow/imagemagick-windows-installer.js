@@ -16,25 +16,95 @@
 const WORKFLOW_NAME = "imagemagick-windows-installer";
 const IMAGEMAGICK_BASE_URL = "https://imagemagick.org/archive/binaries/";
 
-// Region to mirror URL mapping
-// Add new regions here as needed
 const REGION_MIRRORS = {
     'cn': 'https://toolchains.mirror.toulan.fun/',
     'china': 'https://toolchains.mirror.toulan.fun/',
-    // Future regions can be added here:
-    // 'jp': 'https://mirror.example.co.jp/',
-    // 'eu': 'https://mirror.example.eu/',
 };
 
-// Get mirror URL for a specific region
 function getMirrorUrl(region) {
-    // Normalize region to lowercase
     const normalizedRegion = region.toLowerCase();
     return REGION_MIRRORS[normalizedRegion] || null;
 }
 
-// Scrape ImageMagick website for portable versions
-async function scrapeImageMagickVersions(baseUrl) {
+function getWindowsArch() {
+    const candidates = [
+        getVar('ARCH'),
+        getVar('arch'),
+        getVar('PROCESSOR_ARCHITECTURE'),
+        getVar('PROCESSOR_ARCHITEW6432'),
+    ];
+    let arch = '';
+    for (let i = 0; i < candidates.length; i++) {
+        if (candidates[i]) {
+            arch = String(candidates[i]).toLowerCase();
+            if (arch) {
+                break;
+            }
+        }
+    }
+    if (!arch && typeof process !== 'undefined' && process.arch) {
+        arch = String(process.arch).toLowerCase();
+    }
+    if (arch.indexOf('64') !== -1 || arch.indexOf('x64') !== -1 || arch.indexOf('amd64') !== -1) {
+        return 'x64';
+    }
+    if (arch.indexOf('86') !== -1 || arch.indexOf('32') !== -1 || arch.indexOf('ia32') !== -1) {
+        return 'x86';
+    }
+    return 'x64';
+}
+
+function parseVersionFromFilename(filename) {
+    const match = filename.match(/ImageMagick-([0-9.]+-[0-9]+)-portable/);
+    if (match && match[1]) {
+        return match[1];
+    }
+    return 'unknown';
+}
+
+function detectArchFromFilename(filename) {
+    const lower = filename.toLowerCase();
+    if (lower.indexOf('x64') !== -1 || lower.indexOf('x86_64') !== -1 || lower.indexOf('win64') !== -1 || lower.indexOf('amd64') !== -1) {
+        return 'x64';
+    }
+    if (lower.indexOf('x86') !== -1 || lower.indexOf('win32') !== -1 || lower.indexOf('i386') !== -1) {
+        return 'x86';
+    }
+    return null;
+}
+
+function sortVersionsDescending(versions) {
+    versions.sort((a, b) => {
+        const aParts = String(a.version || '').split(/[-.]/);
+        const bParts = String(b.version || '').split(/[-.]/);
+        for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+            const aPart = parseInt(aParts[i]) || 0;
+            const bPart = parseInt(bParts[i]) || 0;
+            if (aPart !== bPart) {
+                return bPart - aPart;
+            }
+        }
+        return 0;
+    });
+    return versions;
+}
+
+function filterVersionsByArch(versions, arch) {
+    const targetArch = arch === 'x86' ? 'x86' : 'x64';
+    const exactMatches = versions.filter(v => v.arch === targetArch);
+    if (exactMatches.length > 0) {
+        return exactMatches;
+    }
+    if (targetArch === 'x64') {
+        const nonX86 = versions.filter(v => v.arch !== 'x86');
+        if (nonX86.length > 0) {
+            return nonX86;
+        }
+    }
+    return versions;
+}
+
+async function scrapeImageMagickVersions(baseUrl, arch) {
     console.log(`🔍 Scraping ImageMagick versions from: ${baseUrl}`);
     
     try {
@@ -48,11 +118,7 @@ async function scrapeImageMagickVersions(baseUrl) {
         
         const html = response.body;
         
-        // Debug: Show first 500 characters of HTML (verbose mode only)
-        // console.log(`📝 HTML preview: ${html.substring(0, 500)}`);
-        
-        // Debug: Look for any ZIP files in the HTML
-        console.log(`🔍 Looking for any ZIP files...`);
+        console.log(` Looking for any ZIP files...`);
         const zipPattern = /href="([^"]*\.zip)"/g;
         let zipMatches = [];
         let zipMatch;
@@ -61,77 +127,40 @@ async function scrapeImageMagickVersions(baseUrl) {
         }
         console.log(`📦 All ZIP files found: ${zipMatches.join(', ')}`);
         
-        // Debug: Look for any files containing "ImageMagick" (verbose mode only)
-        // console.log(`🔍 Looking for files with "ImageMagick" in name...`);
         const imagemagickPattern = /href="([^"]*ImageMagick[^"]*)"/g;
         let imagemagickMatches = [];
         let imagemagickMatch;
         while ((imagemagickMatch = imagemagickPattern.exec(html)) !== null) {
             imagemagickMatches.push(imagemagickMatch[1]);
         }
-        // console.log(`🎯 ImageMagick files found: ${imagemagickMatches.join(', ')}`);
         console.log(`🎯 Found ${imagemagickMatches.length} ImageMagick files`);
         
-        // Parse HTML to find portable archive files (7z or zip)
-        const patterns = [
-            /href="(ImageMagick-([0-9.]+-[0-9]+)-portable-Q16-x64\.7z)"/g,
-            /href="(ImageMagick-([0-9.]+)-portable-Q16-x64\.7z)"/g,
-            /href="(ImageMagick-([0-9.]+)-[0-9]+-portable-Q16-x64\.7z)"/g,
-            /href="([^"]*?ImageMagick[^"]*?portable[^"]*?\.(7z|zip))"/g,
-            /href="([^"]*?ImageMagick[^"]*?\.(7z|zip))"/g  // More general pattern
-        ];
-        
         const versions = [];
-        
-        for (let patternIndex = 0; patternIndex < patterns.length; patternIndex++) {
-            const pattern = patterns[patternIndex];
-            console.log(`🔍 Trying pattern ${patternIndex + 1}: ${pattern}`);
-            
-            let match;
-            let matchCount = 0;
-            
-            while ((match = pattern.exec(html)) !== null) {
-                console.log(`🎯 Pattern ${patternIndex + 1} found match: ${match[1]}`);
-                if (match.length > 2) {
-                    console.log(`   Version: ${match[2]}`);
-                }
-                
-                versions.push({
-                    filename: match[1],
-                    version: match[2] || 'unknown',
-                    url: baseUrl + match[1],
-                    timestamp: Date.now(),
-                    pattern: patternIndex + 1
-                });
-                matchCount++;
-            }
-            
-            console.log(`📋 Pattern ${patternIndex + 1} matches: ${matchCount}`);
-            
-            if (matchCount > 0) {
-                break; // Use the first pattern that finds matches
-            }
+        const portablePattern = /href="([^"]*ImageMagick[^"]*portable[^"]*\.(7z|zip))"/g;
+        let match;
+        let matchCount = 0;
+        while ((match = portablePattern.exec(html)) !== null) {
+            const filename = match[1];
+            const version = parseVersionFromFilename(filename);
+            const fileArch = detectArchFromFilename(filename);
+            versions.push({
+                filename: filename,
+                version: version,
+                url: baseUrl + filename,
+                timestamp: Date.now(),
+                pattern: 1,
+                arch: fileArch
+            });
+            matchCount++;
         }
         
-        // Sort by version (newest first)
-        versions.sort((a, b) => {
-            const aParts = a.version.split(/[-.]/);
-            const bParts = b.version.split(/[-.]/);
-            
-            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-                const aPart = parseInt(aParts[i]) || 0;
-                const bPart = parseInt(bParts[i]) || 0;
-                
-                if (aPart !== bPart) {
-                    return bPart - aPart; // Descending order
-                }
-            }
-            
-            return 0;
-        });
+        console.log(`📋 Portable matches: ${matchCount}`);
         
-        console.log(`📋 Found ${versions.length} portable versions`);
-        return versions;
+        const filtered = filterVersionsByArch(versions, arch);
+        sortVersionsDescending(filtered);
+        
+        console.log(`📋 Found ${filtered.length} portable versions after architecture filter`);
+        return filtered;
         
     } catch (error) {
         console.error(`❌ Failed to scrape ImageMagick versions: ${error.message}`);
@@ -139,19 +168,17 @@ async function scrapeImageMagickVersions(baseUrl) {
     }
 }
 
-async function getLatestPortableUrl(region) {
+async function getLatestPortableUrl(region, arch) {
     console.log(`🌍 Detected region: ${region}`);
     
     let versions = [];
     let usedMirror = false;
     
-    // Check if there's a mirror available for this region
     const mirrorUrl = getMirrorUrl(region);
     
     if (mirrorUrl) {
         console.log(`🔄 Mirror found for region ${region}, trying mirror first: ${mirrorUrl}`);
         try {
-            // Get versions.json from mirror
             const versionsJsonUrl = mirrorUrl + 'versions.json';
             console.log(`📡 Fetching versions.json from: ${versionsJsonUrl}`);
             
@@ -160,27 +187,23 @@ async function getLatestPortableUrl(region) {
                 throw new Error(`Failed to fetch versions.json: ${versionsResponse.error}`);
             }
             
-            // Parse versions.json
             const versionsData = JSON.parse(versionsResponse.body);
             
-            // Check if software section exists and has files
             if (versionsData.software && versionsData.software.files) {
                 console.log(`📦 Found software section with ${versionsData.software.files.length} files`);
                 
-                // Look for ImageMagick portable files
                 for (const file of versionsData.software.files) {
-                    if (file.name.includes('ImageMagick') && file.name.includes('portable')) {
-                        // Extract version from filename
-                        const versionMatch = file.name.match(/ImageMagick-([0-9.]+-[0-9]+)-portable/);
-                        const version = versionMatch ? versionMatch[1] : 'unknown';
-                        
+                    if (file.name.includes('ImageMagick') && file.name.includes('portable') && (file.name.endsWith('.zip') || file.name.endsWith('.7z'))) {
+                        const version = parseVersionFromFilename(file.name);
+                        const fileArch = detectArchFromFilename(file.name);
                         versions.push({
                             filename: file.name,
                             version: version,
                             url: mirrorUrl + 'software/' + file.name,
                             size: file.size,
                             timestamp: Date.now(),
-                            source: 'mirror'
+                            source: 'mirror',
+                            arch: fileArch
                         });
                         
                         console.log(`🎯 Found ImageMagick on mirror: ${file.name} (${version})`);
@@ -189,24 +212,11 @@ async function getLatestPortableUrl(region) {
                 
                 if (versions.length > 0) {
                     usedMirror = true;
-                    console.log(`✅ Found ${versions.length} ImageMagick versions on mirror`);
+                    console.log(`✅ Found ${versions.length} ImageMagick versions on mirror before architecture filter`);
                     
-                    // Sort by version (newest first)
-                    versions.sort((a, b) => {
-                        const aParts = a.version.split(/[-.]/);
-                        const bParts = b.version.split(/[-.]/);
-                        
-                        for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-                            const aPart = parseInt(aParts[i]) || 0;
-                            const bPart = parseInt(bParts[i]) || 0;
-                            
-                            if (aPart !== bPart) {
-                                return bPart - aPart; // Descending order
-                            }
-                        }
-                        
-                        return 0;
-                    });
+                    versions = filterVersionsByArch(versions, arch);
+                    sortVersionsDescending(versions);
+                    console.log(`📋 Using ${versions.length} ImageMagick versions on mirror after architecture filter`);
                 } else {
                     console.log(`⚠️  No ImageMagick portable versions found in mirror software section`);
                 }
@@ -220,11 +230,10 @@ async function getLatestPortableUrl(region) {
         console.log(`🌍 No mirror configured for region ${region}, using official site`);
     }
     
-    // If no versions from mirror or no mirror for this region, scrape official site
     if (versions.length === 0) {
         try {
             console.log(`📡 Scraping official ImageMagick site...`);
-            const officialVersions = await scrapeImageMagickVersions(IMAGEMAGICK_BASE_URL);
+            const officialVersions = await scrapeImageMagickVersions(IMAGEMAGICK_BASE_URL, arch);
             versions = officialVersions.map(v => ({ ...v, source: 'official' }));
         } catch (error) {
             throw new Error(`Failed to get ImageMagick versions from official site: ${error.message}`);
@@ -262,6 +271,7 @@ async function validateInstallation(installInfo) {
     
     const results = {};
     let mainExecutable = null;
+    let versionCommandSucceeded = false;
     
     for (const exe of executables) {
         const exePath = fs.join([extractDir, exe]);
@@ -282,11 +292,50 @@ async function validateInstallation(installInfo) {
                 
                 console.log(`✅ Found ${exe} (${Math.round(stats.data.size / 1024)}KB)`);
             } else {
-                results[exe] = { exists: false, error: 'Not a file' };
+                const findResult = fs.find(extractDir, exe);
+                if (findResult && findResult.success && Array.isArray(findResult.files) && findResult.files.length > 0) {
+                    const foundPath = findResult.files[0];
+                    const foundStats = await fs.stat(foundPath);
+                    if (foundStats && foundStats.success && foundStats.data && !foundStats.data.is_dir) {
+                        results[exe] = {
+                            exists: true,
+                            path: foundPath,
+                            size: foundStats.data.size
+                        };
+                        if (exe === 'magick.exe' && !mainExecutable) {
+                            mainExecutable = foundPath;
+                        }
+                        console.log(`✅ Found ${exe} (${Math.round(foundStats.data.size / 1024)}KB)`);
+                    } else {
+                        results[exe] = { exists: false, error: 'Found path invalid' };
+                    }
+                } else {
+                    results[exe] = { exists: false, error: 'Not a file' };
+                }
             }
         } catch (error) {
-            results[exe] = { exists: false, error: error.message };
-            console.log(`❌ ${exe}: ${error.message}`);
+            const findResult = fs.find(extractDir, exe);
+            if (findResult && findResult.success && Array.isArray(findResult.files) && findResult.files.length > 0) {
+                const foundPath = findResult.files[0];
+                const foundStats = await fs.stat(foundPath);
+                if (foundStats && foundStats.success && foundStats.data && !foundStats.data.is_dir) {
+                    results[exe] = {
+                        exists: true,
+                        path: foundPath,
+                        size: foundStats.data.size
+                    };
+                    if (exe === 'magick.exe' && !mainExecutable) {
+                        mainExecutable = foundPath;
+                    }
+                    console.log(`✅ Found ${exe} (${Math.round(foundStats.data.size / 1024)}KB)`);
+                } else {
+                    results[exe] = { exists: false, error: error.message };
+                    console.log(`❌ ${exe}: ${error.message}`);
+                }
+            } else {
+                results[exe] = { exists: false, error: error.message };
+                console.log(`❌ ${exe}: ${error.message}`);
+            }
         }
     }
     
@@ -297,6 +346,7 @@ async function validateInstallation(installInfo) {
             const result = await cliCommand(mainExecutable, ['-version']);
             
             if (!result.error) {
+                versionCommandSucceeded = true;
                 const output = result.stdout || result.stderr || '';
                 const versionMatch = output.match(/Version: ImageMagick ([^\s]+)/);
                 
@@ -317,11 +367,11 @@ async function validateInstallation(installInfo) {
         }
     }
     
-    // Check if at least one executable exists
-    const hasExecutables = Object.values(results).some(r => r.exists);
+    const hasExecutables = Object.values(results).some(r => r && r.exists);
+    const success = hasExecutables && (!mainExecutable || versionCommandSucceeded);
     
     return {
-        success: hasExecutables,
+        success: success,
         results: results,
         mainExecutable: mainExecutable,
         extractDir: extractDir
@@ -334,10 +384,8 @@ async function setupEnvironment(installInfo, toolsDir) {
     
     console.log(`🔧 Setting up environment...`);
     
-    // Create tools directory if it doesn't exist
     await fs.mkdir(toolsDir);
     
-    // Create symlinks for main executables in tools directory
     const symlinks = [];
     
     for (const [exe, info] of Object.entries(results)) {
@@ -364,7 +412,6 @@ async function setupEnvironment(installInfo, toolsDir) {
         }
     }
     
-    // Return main executable path for PATH setup
     const mainTarget = mainExecutable ? fs.join([toolsDir, 'magick.exe']) : null;
     
     return {
@@ -390,25 +437,23 @@ async function main() {
         }
         console.log(`✅ Running on Windows system`);
         
-        // Get configuration from environment variables
-        const homeDir = getVar('HOME') || '/tmp';
-        const installDir = getVar('INSTALL_DIR') || fs.join([homeDir, '.amo', 'tools']);
-        const toolsDir = getVar('TOOLS_DIR') || fs.join([homeDir, '.amo', 'bin']);
+        const providedInstallDir = getVar('installDir');
+        const homeDir = getVar('HOME') || getVar('USERPROFILE') || providedInstallDir || '/tmp';
+        const installDir = getVar('INSTALL_DIR') || providedInstallDir || fs.join([homeDir, '.amo', 'tools']);
+        const toolsDir = getVar('TOOLS_DIR') || installDir;
         const downloadsDir = getVar('DOWNLOADS_DIR') || fs.join([homeDir, '.amo', 'downloads']);
         
         console.log(`📁 Install directory: ${installDir}`);
         console.log(`📁 Tools directory: ${toolsDir}`);
         console.log(`📁 Downloads directory: ${downloadsDir}`);
         
-        // Create downloads directory if it doesn't exist
         await fs.mkdir(downloadsDir);
         
-        // Get region from auto-detection
         const region = getRegion();
         console.log(`🌍 Detected region: ${region}`);
-        
-        // Get latest portable URL
-        const downloadInfo = await getLatestPortableUrl(region);
+        const arch = getWindowsArch();
+        console.log(`🖥 Detected architecture: ${arch}`);
+        const downloadInfo = await getLatestPortableUrl(region, arch);
         
         // Download to persistent downloads directory first
         const downloadPath = fs.join([downloadsDir, downloadInfo.filename]);

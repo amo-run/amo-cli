@@ -184,6 +184,9 @@ declare const console: {
 
 // Core API functions
 declare function getVar(key: string): string;
+declare function getOS(): string;
+declare function getRegion(): string;
+declare function getArch(): string;
 declare function cliCommand(
   command: string, 
   args?: string[], 
