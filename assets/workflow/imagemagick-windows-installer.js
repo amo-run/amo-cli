@@ -235,7 +235,13 @@ async function getLatestPortableUrl(region) {
         throw new Error('No portable ImageMagick versions found');
     }
     
-    const latest = versions[0];
+    let latest = versions[0];
+    
+    const zipVersions = versions.filter(v => v.filename && v.filename.toLowerCase().endsWith('.zip'));
+    if (zipVersions.length > 0) {
+        latest = zipVersions[0];
+    }
+    
     console.log(`🎯 Selected version ${latest.version} from ${latest.source}: ${latest.filename}`);
     
     return {
@@ -441,7 +447,8 @@ async function main() {
         console.log(`📋 Copying from downloads to install directory...`);
         await fs.copy(downloadPath, tempZipPath);
         
-        // Extract 7z file
+        const isZip = downloadInfo.filename.toLowerCase().endsWith('.zip');
+        
         console.log(`📦 Extracting ${downloadInfo.filename}...`);
         
         // Create extraction directory
@@ -462,23 +469,36 @@ async function main() {
             console.log(`📦 Directory not found, extracting files... (${error.message})`);
             await fs.mkdir(extractDir);
             
-            // Extract 7z using external command
-            console.log(`📦 Extracting 7z file...`);
-            const extractResult = await cliCommand('7z', ['x', tempZipPath, '-o' + extractDir, '-y'], {
-                timeout: 300,
-                cwd: extractDir
-            });
+            let extractionSucceeded = false;
             
-            if (extractResult.error) {
-                throw new Error(`7z extraction failed: ${extractResult.error}`);
+            if (isZip) {
+                console.log(`📦 Using built-in ZIP extractor...`);
+                const extractResult = fs.extractZip(tempZipPath, extractDir);
+                if (!extractResult || !extractResult.success) {
+                    const errorMessage = extractResult && extractResult.error ? extractResult.error : 'unknown error';
+                    throw new Error(`ZIP extraction failed: ${errorMessage}`);
+                }
+                extractionSucceeded = true;
+            } else {
+                console.log(`📦 Extracting 7z file...`);
+                const extractResult = await cliCommand('7z', ['x', tempZipPath, '-o' + extractDir, '-y'], {
+                    timeout: 300,
+                    cwd: extractDir
+                });
+                
+                if (extractResult.error) {
+                    throw new Error(`7z extraction failed: ${extractResult.error}`);
+                }
+                
+                extractionSucceeded = true;
             }
             
-            console.log(`✅ 7z extraction completed`);
-            console.log(`✅ Extraction completed to: ${extractDir}`);
-            
-            // Clean up temporary file from install directory (keep persistent download)
-            await fs.remove(tempZipPath);
-            console.log(`🧹 Cleaned up temporary file: ${downloadInfo.filename}`);
+            if (extractionSucceeded) {
+                console.log(`✅ Extraction completed to: ${extractDir}`);
+                
+                await fs.remove(tempZipPath);
+                console.log(`🧹 Cleaned up temporary file: ${downloadInfo.filename}`);
+            }
         }
         
         const extractInfo = {
