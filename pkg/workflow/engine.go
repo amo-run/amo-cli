@@ -86,8 +86,18 @@ func (e *Engine) RunWorkflow(scriptPath string) error {
 
 	script, err := e.loadScript(scriptPath)
 	if err != nil {
-		close(done)
-		return err
+		if e.shouldTryJsExtension(scriptPath, err) {
+			altPath := scriptPath + ".js"
+			script, err = e.loadScript(altPath)
+			if err != nil {
+				close(done)
+				return err
+			}
+			scriptPath = altPath
+		} else {
+			close(done)
+			return err
+		}
 	}
 
 	err = e.executeScript(script, scriptPath)
@@ -146,6 +156,29 @@ func (e *Engine) loadScript(scriptPath string) (string, error) {
 	}
 
 	return "", fmt.Errorf("script not found: %s", scriptPath)
+}
+
+func (e *Engine) isScriptNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "script not found:")
+}
+
+func (e *Engine) shouldTryJsExtension(scriptPath string, err error) bool {
+	if !e.isScriptNotFoundError(err) {
+		return false
+	}
+
+	if strings.Contains(scriptPath, "/") || strings.Contains(scriptPath, string(filepath.Separator)) {
+		return false
+	}
+
+	if filepath.Ext(scriptPath) != "" {
+		return false
+	}
+
+	return true
 }
 
 // tryConfiguredWorkflowPath attempts to load script from the user's configured workflow directory
