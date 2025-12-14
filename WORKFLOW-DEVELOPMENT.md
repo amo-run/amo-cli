@@ -55,12 +55,13 @@ When developing Amo workflows, please pay attention to the following restriction
 
 The Amo workflow engine provides the following core APIs:
 
-- **`fs`**: File system operations (read/write files, directory operations, path handling, hashing, etc.)
-- **`http`**: Network requests (GET, POST, file downloads, etc.)
+- **`fs`**: File system operations (read/write files, directory operations, path handling, hashing, archive extraction, etc.)
+- **`http`**: Network requests (GET, POST, file downloads, resume downloads, etc.)
 - **`encoding`**: Encoding/decoding operations (base64, etc.)
 - **`console`**: Console output (logging)
 - **`cliCommand`**: Command line execution (with security whitelist)
 - **`getVar`**: Get environment variables and runtime parameters
+- **`clipboard`**: System clipboard read/write operations
 
 ## TypeScript Definition File Setup
 
@@ -300,6 +301,19 @@ if (downloadResponse.status_code === 200) {
 } else {
     console.error("Download failed:", downloadResponse.error);
 }
+
+// Resume download with progress
+var resumeResponse = http.downloadFileResume(
+    "https://example.com/large-file.zip",
+    "./downloads/file.zip",
+    { show_progress: true }
+);
+
+if (resumeResponse.status_code === 200) {
+    console.log("Resume download completed:", resumeResponse.body);
+} else {
+    console.error("Resume download failed:", resumeResponse.error);
+}
 ```
 
 ### Encoding/Decoding Examples
@@ -401,6 +415,37 @@ if (sha256Result.success) {
 
 // Clean up the test file
 fs.remove(testFile);
+```
+
+### Archive Operations Examples
+
+```javascript
+//!amo
+
+// Extract ZIP file
+var extractResult = fs.extractZip("./archive.zip", "./extracted");
+if (extractResult.success) {
+    console.log("ZIP file extracted successfully");
+    
+    // List extracted files
+    var files = fs.readdir("./extracted");
+    if (files.success) {
+        console.log("Extracted files:");
+        files.files.forEach(function(file) {
+            var icon = file.is_dir ? "📁" : "📄";
+            console.log("  " + icon + " " + file.name);
+        });
+    }
+} else {
+    console.error("Failed to extract ZIP:", extractResult.error);
+}
+
+// Clean up extracted directory
+if (fs.exists("./extracted")) {
+    // Note: This is a simplified example, in real usage you might want
+    // to recursively delete the directory
+    console.log("Extracted directory cleanup required");
+}
 ```
 
 ## Examples and Best Practices

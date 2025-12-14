@@ -147,6 +147,9 @@ declare const fs: {
   // Hash functions
   md5(path: string): Amo.HashResult;
   sha256(path: string): Amo.HashResult;
+  
+  // Archive operations
+  extractZip(zipPath: string, targetDir: string): Amo.Result;
 };
 
 // HTTP/Network API
@@ -155,6 +158,7 @@ declare const http: {
   post(url: string, body: string, headers?: Record<string, string>): Amo.HTTPResponse;
   getJSON(url: string, headers?: Record<string, string>): Amo.HTTPJSONResponse;
   downloadFile(url: string, outputPath: string, options?: Amo.DownloadOptions): Amo.HTTPResponse;
+  downloadFileResume(url: string, outputPath: string, options?: Amo.DownloadOptions): Amo.HTTPResponse;
 };
 
 // Encoding API
