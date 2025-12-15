@@ -184,10 +184,37 @@ func (m *Manager) findToolExecutable(tool Tool) string {
 		}
 	}
 
-	// Check for fallback commands (especially important for Windows portable versions)
+	// Try system PATH for primary command first
+	if path, err := exec.LookPath(tool.Check.Command); err == nil {
+		m.setCachedToolPath(tool.Check.Command, path)
+		return path
+	}
+	// Windows-specific fallback via 'where'
+	if runtime.GOOS == "windows" {
+		if wherePath, err := exec.LookPath("where"); err == nil {
+			out, err := exec.Command(wherePath, tool.Check.Command).CombinedOutput()
+			if err == nil {
+				lines := strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n")
+				for _, l := range lines {
+					p := strings.TrimSpace(l)
+					if p == "" {
+						continue
+					}
+					if _, err := os.Stat(p); err == nil {
+						m.setCachedToolPath(tool.Check.Command, p)
+						return p
+					}
+				}
+			}
+		}
+	}
+
+	// Check for fallback commands
 	if len(tool.Check.FallbackCommands) > 0 {
 		for _, fallbackCmd := range tool.Check.FallbackCommands {
-			// Check in install directory first
+			if runtime.GOOS == "windows" && strings.EqualFold(fallbackCmd, "convert") {
+				continue
+			}
 			fallbackPath := filepath.Join(installDir, fallbackCmd)
 			if runtime.GOOS == "windows" && !strings.HasSuffix(fallbackPath, ".exe") {
 				fallbackPath += ".exe"
@@ -196,19 +223,29 @@ func (m *Manager) findToolExecutable(tool Tool) string {
 				m.setCachedToolPath(tool.Check.Command, fallbackPath)
 				return fallbackPath
 			}
-
-			// Check in system PATH
 			if path, err := exec.LookPath(fallbackCmd); err == nil {
 				m.setCachedToolPath(tool.Check.Command, path)
 				return path
 			}
+			if runtime.GOOS == "windows" {
+				if wherePath, err := exec.LookPath("where"); err == nil {
+					out, err := exec.Command(wherePath, fallbackCmd).CombinedOutput()
+					if err == nil {
+						lines := strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n")
+						for _, l := range lines {
+							p := strings.TrimSpace(l)
+							if p == "" {
+								continue
+							}
+							if _, err := os.Stat(p); err == nil {
+								m.setCachedToolPath(tool.Check.Command, p)
+								return p
+							}
+						}
+					}
+				}
+			}
 		}
-	}
-
-	// Use exec.LookPath to find the executable
-	if path, err := exec.LookPath(tool.Check.Command); err == nil {
-		m.setCachedToolPath(tool.Check.Command, path)
-		return path
 	}
 
 	return tool.Check.Command // fallback to original command
@@ -287,6 +324,9 @@ func (m *Manager) checkToolStatus(toolName string, tool Tool) ToolStatus {
 		// If primary command failed, try fallback commands
 		if len(tool.Check.FallbackCommands) > 0 {
 			for _, fallbackCmd := range tool.Check.FallbackCommands {
+				if runtime.GOOS == "windows" && strings.EqualFold(fallbackCmd, "convert") {
+					continue
+				}
 				fallbackCommand := m.findToolExecutable(Tool{Check: CheckConfig{Command: fallbackCmd, FallbackCommands: []string{}}})
 				fallbackArgs := tool.Check.Args
 				if len(fallbackArgs) == 0 {

@@ -103,7 +103,8 @@
       "check": {
         "command": "gs",
         "args": ["--version"],
-        "pattern": "([0-9]+\\.[0-9]+\\.[0-9]+)"
+        "pattern": "([0-9]+\\.[0-9]+\\.[0-9]+)",
+        "fallback_commands": ["gswin64c", "gswin32c"]
       },
       "install": {
         "windows": {
